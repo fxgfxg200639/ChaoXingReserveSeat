@@ -12,21 +12,9 @@ logging.basicConfig(
 
 from utils import reserve, get_user_credentials
 
-get_current_time = lambda action: (
-    time.strftime("%H:%M:%S", time.localtime(time.time() + 8 * 3600))
-    if action
-    else time.strftime("%H:%M:%S", time.localtime(time.time()))
-)
-get_current_dayofweek = lambda action: (
-    time.strftime("%A", time.localtime(time.time() + 8 * 3600))
-    if action
-    else time.strftime("%A", time.localtime(time.time()))
-)
-
-
-SLEEPTIME = 0.5  # 每次抢座的间隔，改成0.5秒
+SLEEPTIME = 0.5  # 每次抢座的间隔
 MAX_ATTEMPT = 20  # 最多尝试20次
-RESERVE_NEXT_DAY = True  # 预约第二天的座位
+RESERVE_NEXT_DAY = True
 ENABLE_SLIDER = True
 
 
@@ -38,7 +26,7 @@ def login_and_reserve(users, usernames, passwords, action, success_list=None):
         raise Exception("user number should match the number of config")
     if success_list is None:
         success_list = [False] * len(users)
-    current_dayofweek = get_current_dayofweek(action)
+    current_dayofweek = datetime.datetime.now().strftime("%A")
     for index, user in enumerate(users):
         username, password, times, roomid, seatid, daysofweek = user.values()
         if action:
@@ -68,26 +56,25 @@ def login_and_reserve(users, usernames, passwords, action, success_list=None):
 
 
 def main(users, action=False):
-    # 先等到22:00准点再开始
+    # GitHub服务器是UTC时区，北京时间22:00 = UTC14:00
     now = datetime.datetime.now()
-    target = now.replace(hour=22, minute=0, second=0, microsecond=0)
+    logging.info(f"服务器当前UTC时间: {now}")
+    target = now.replace(hour=14, minute=0, second=0, microsecond=0)
     if now < target:
         wait_sec = (target - now).total_seconds()
-        logging.info(f"距离22:00放号还有{int(wait_sec)}秒，等待准点...")
+        logging.info(f"距离北京时间22:00（UTC14:00）还有{int(wait_sec)}秒，等待准点...")
         time.sleep(wait_sec)
     
-    logging.info(f"start time {get_current_time(action)}, action {'on' if action else 'off'}")
-    attempt_times = 0
+    logging.info(f"开始抢座，当前UTC时间: {datetime.datetime.now()}")
     usernames, passwords = None, None
     if action:
         usernames, passwords = get_user_credentials(action)
     success_list = None
-    current_dayofweek = get_current_dayofweek(action)
+    current_dayofweek = datetime.datetime.now().strftime("%A")
     today_reservation_num = sum(
         1 for d in users if current_dayofweek in d.get("daysofweek")
     )
     
-    # 最多试一轮，20次就结束
     success_list = login_and_reserve(
         users, usernames, passwords, action, success_list
     )
@@ -98,12 +85,10 @@ def main(users, action=False):
 
 
 def debug(users, action=False):
-    logging.info(
-        f"Debug Mode start!"
-    )
+    logging.info(f"Debug Mode start!")
     if action:
         usernames, passwords = get_user_credentials(action)
-    current_dayofweek = get_current_dayofweek(action)
+    current_dayofweek = datetime.datetime.now().strftime("%A")
     for index, user in enumerate(users):
         username, password, times, roomid, seatid, daysofweek = user.values()
         if type(seatid) == str:
