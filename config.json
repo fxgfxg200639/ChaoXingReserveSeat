@@ -41,27 +41,6 @@
                 "Saturday",
                 "Sunday"
             ]
-        },
-        {
-            "username": "13362793415",
-            "password": "Fxg200639*",
-            "time": [
-                "16:30",
-                "17:00"
-            ],
-            "roomid": "6487",
-            "seatid": [
-                "082"
-            ],
-            "daysofweek": [
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-                "Sunday"
-            ]
         }
     ]
 }
