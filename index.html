@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超星抢座配置</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; color: #333; line-height: 1.6; padding-bottom: 80px; }
+        .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+        h1 { text-align: center; margin: 20px 0; color: #1a73e8; font-size: 22px; }
+        .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .card h2 { font-size: 16px; margin-bottom: 12px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 4px; font-size: 13px; color: #666; font-weight: 500; }
+        input, select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; }
+        input:focus { outline: none; border-color: #1a73e8; }
+        .row { display: flex; gap: 10px; }
+        .row > * { flex: 1; }
+        .btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #1a73e8; color: white; width: 100%; }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-sm { padding: 6px 12px; font-size: 13px; }
+        .slot-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .slot-row input { flex: 1; }
+        .remove-x { color: #dc3545; cursor: pointer; font-size: 20px; padding: 0 4px; }
+        .add-link { color: #1a73e8; cursor: pointer; font-size: 14px; display: inline-block; margin-top: 4px; }
+        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #28a745; color: white; padding: 12px 24px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; display: none; }
+        .token-box { background: #fff3cd; border: 1px solid #ffeaa7; padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 超星抢座配置</h1>
+
+        <div class="card">
+            <h2>🔑 GitHub 授权</h2>
+            <div class="token-box">
+                首次使用需要填 Token（只需填一次，自动保存到浏览器）
+            </div>
+            <div class="form-group">
+                <label>GitHub Token</label>
+                <input type="password" id="token" placeholder="ghp_xxxx...">
+            </div>
+            <button class="btn btn-primary" onclick="saveToken()">保存 Token</button>
+        </div>
+
+        <div class="card">
+            <h2>⏰ 预约配置</h2>
+            <div id="config-container"></div>
+            <div style="text-align: center; margin-top: 12px;">
+                <button class="btn btn-secondary btn-sm" onclick="addSlot()">+ 加一个时间段</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>👤 账号列表</h2>
+            <div id="accounts-container"></div>
+            <button class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 8px;" onclick="addAccount()">+ 添加账号</button>
+        </div>
+
+        <div style="position: fixed; bottom: 20px; left: 0; right: 0; padding: 0 16px;">
+            <button class="btn btn-primary" onclick="saveConfig()">💾 保存并推送到 GitHub</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const REPO = "fxgfxg200639/ChaoXingReserveSeat";
+        let config = { reserve: [] };
+        let token = localStorage.getItem("gh_token") || "";
+
+        document.getElementById("token").value = token;
+
+        function saveToken() {
+            token = document.getElementById("token").value.trim();
+            localStorage.setItem("gh_token", token);
+            showToast("Token 已保存");
+            loadConfig();
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById("toast");
+            t.textContent = msg;
+            t.style.display = "block";
+            setTimeout(() => t.style.display = "none", 2000);
+        }
+
+        async function loadConfig() {
+            if (!token) return;
+            try {
+                const res = await fetch(`https://api.github.com/repos/${REPO}/contents/config.json`, {
+                    headers: { Authorization: `token ${token}`, "User-Agent": "config-web" }
+                });
+                const data = await res.json();
+                configSha = data.sha;
+                const content = decodeURIComponent(escape(atob(data.content)));
+                config = JSON.parse(content);
+                renderConfig();
+            } catch (e) {
+                showToast("加载失败，请检查 Token");
+            }
+        }
+
+        async function saveConfig() {
+            if (!token) { showToast("请先填 Token"); return; }
+            collectForm();
+            try {
+                const content = JSON.stringify(config, null, 4);
+                const contentBase64 = btoa(unescape(encodeURIComponent(content)));
+                const res = await fetch(`https://api.github.com/repos/${REPO}/contents/config.json`, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `token ${token}`,
+                        "User-Agent": "config-web",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message: "update config from web",
+                        content: contentBase64,
+                        sha: configSha
+                    })
+                });
+                if (res.status === 200) {
+                    showToast("✅ 已保存到 GitHub，明天自动生效");
+                } else {
+                    showToast("保存失败：" + res.status);
+                }
+            } catch (e) {
+                showToast("保存出错：" + e.message);
+            }
+        }
+
+        let configSha = null;
+
+        function renderConfig() {
+            const container = document.getElementById("config-container");
+            container.innerHTML = "";
+            config.reserve.forEach((item, idx) => {
+                const div = document.createElement("div");
+                div.style.cssText = "background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 10px;";
+                div.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <strong>时段 ${idx + 1}</strong>
+                        <span class="remove-x" onclick="removeSlot(${idx})">×</span>
+                    </div>
+                    <div class="row">
+                        <div class="form-group">
+                            <label>开始时间</label>
+                            <input type="time" value="${item.time[0]}" onchange="updateSlot(${idx}, 0, this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>结束时间</label>
+                            <input type="time" value="${item.time[1]}" onchange="updateSlot(${idx}, 1, this.value)">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>RoomID（教室区域ID）</label>
+                        <input type="text" value="${item.roomid}" onchange="updateRoomid(${idx}, this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>备选座位号（逗号分隔）</label>
+                        <input type="text" value="${item.seatid.join(', ')}" onchange="updateSeats(${idx}, this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>星期几抢座（逗号分隔）</label>
+                        <input type="text" value="${item.daysofweek.join(', ')}" onchange="updateDays(${idx}, this.value)">
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+            renderAccounts();
+        }
+
+        function renderAccounts() {
+            const container = document.getElementById("accounts-container");
+            container.innerHTML = "";
+            // 从 config.reserve 提取账号信息
+            // 注意：GitHub Actions 模式下账号存在 Secrets 里，这里只显示数量
+            container.innerHTML = `<p style="font-size: 13px; color: #666;">账号密码存在 GitHub Secrets 加密存储，共 ${config.reserve.length} 个时段配置</p>`;
+        }
+
+        function updateSlot(idx, timeIdx, value) { config.reserve[idx].time[timeIdx] = value; }
+        function updateRoomid(idx, value) { config.reserve[idx].roomid = value; }
+        function updateSeats(idx, value) { config.reserve[idx].seatid = value.split(',').map(s => s.trim()).filter(s => s); }
+        function updateDays(idx, value) { config.reserve[idx].daysofweek = value.split(',').map(s => s.trim()).filter(s => s); }
+
+        function addSlot() {
+            config.reserve.push({
+                username: "",
+                password: "",
+                time: ["08:30", "15:30"],
+                roomid: "6487",
+                seatid: ["082"],
+                daysofweek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            });
+            renderConfig();
+        }
+
+        function removeSlot(idx) {
+            if (confirm("确定删除这个时段配置？")) {
+                config.reserve.splice(idx, 1);
+                renderConfig();
+            }
+        }
+
+        function addAccount() {
+            alert("添加新账号需要在 GitHub 网页的 Secrets 里操作，配置时段数量和账号数量要对应");
+        }
+
+        function collectForm() {
+            // 表单数据已经在 renderConfig 时直接绑定到 config 了
+        }
+
+        if (token) loadConfig();
+    </script>
+</body>
+</html>
