@@ -3,7 +3,7 @@ name: auto_Reserve
 on:
   schedule:
     # UTC 13:58 = 北京时间 21:58（学校22:00放号，提前2分钟启动等待）
-    - cron: '56 13 * * *'
+    - cron: '19 16 * * *'
   workflow_dispatch:
   
 jobs:
