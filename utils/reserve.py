@@ -1,4 +1,4 @@
-﻿﻿from utils import AES_Encrypt, enc, generate_captcha_key, verify_param
+﻿from utils import AES_Encrypt, enc, generate_captcha_key, verify_param
 import json
 import requests
 import re
