@@ -80,7 +80,11 @@ def main(users, action=False):
     today_reservation_num = sum(
         1 for d in users if current_dayofweek in d.get("daysofweek")
     )
-    while current_time < ENDTIME:
+    # 手动触发（workflow_dispatch）时只抢一次，不受ENDTIME限制
+    is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    if is_manual:
+        logging.info("Manual trigger: reserve once regardless of time")
+    while current_time < ENDTIME or is_manual:
         attempt_times += 1
         # try:
         success_list = login_and_reserve(
@@ -95,6 +99,9 @@ def main(users, action=False):
         if sum(success_list) == today_reservation_num:
             print(f"reserved successfully!")
             return
+        if is_manual:
+            logging.info("Manual trigger done, exit")
+            break
 
 
 def debug(users, action=False):
@@ -171,3 +178,4 @@ if __name__ == "__main__":
     with open(args.user, "r+") as data:
         usersdata = json.load(data)["reserve"]
     func_dict[args.method](usersdata, args.action)
+
