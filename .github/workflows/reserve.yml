@@ -20,7 +20,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           sudo apt-get install build-essential libssl-dev libffi-dev  python3-dev -y
-          pip install cryptography requests numpy pillow
+          pip install cryptography requests numpy pillow opencv-python
 
       - name: run script
         env:
