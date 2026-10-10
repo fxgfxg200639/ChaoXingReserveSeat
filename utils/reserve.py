@@ -1,4 +1,4 @@
-﻿from utils import AES_Encrypt, enc, generate_captcha_key, verify_param
+﻿﻿from utils import AES_Encrypt, enc, generate_captcha_key, verify_param
 import json
 import requests
 import re
@@ -131,33 +131,41 @@ class reserve:
         x = self.x_distance(bg, tp)
         logging.info(f"Successfully calculate the captcha distance {x}")
 
-        params = {
-            "callback": "jQuery33109180509737430778_1716381333117",
-            "captchaId": "42sxgHoTPTKbt0uZxPJ7ssOvtXr3ZgZ1",
-            "type": "slide",
-            "token": captcha_token,
-            "textClickArr": json.dumps([{"x": x}]),
-            "coordinate": json.dumps([]),
-            "runEnv": "10",
-            "version": "1.1.18",
-            "_": int(time.time() * 1000),
-        }
-        response = self.requests.get(
-            f"https://captcha.chaoxing.com/captcha/check/verification/result",
-            params=params,
-            headers=self.headers,
-        )
-        text = response.text.replace(
-            "jQuery33109180509737430778_1716381333117(", ""
-        ).replace(")", "")
-        data = json.loads(text)
-        logging.info(f"Successfully resolve the captcha token {data}")
-        try:
-            validate_val = json.loads(data["extraData"])["validate"]
-            return validate_val
-        except KeyError as e:
-            logging.info("Can't load validate value. Maybe server return mistake.")
-            return ""
+        # 在同一个token下微调距离重试，提高成功率
+        offsets = [0, -5, 5, -10, 10, -3, 3, -7, 7]
+        for off in offsets:
+            trial_x = x + off
+            params = {
+                "callback": "jQuery33109180509737430778_1716381333117",
+                "captchaId": "42sxgHoTPTKbt0uZxPJ7ssOvtXr3ZgZ1",
+                "type": "slide",
+                "token": captcha_token,
+                "textClickArr": json.dumps([{"x": trial_x}]),
+                "coordinate": json.dumps([]),
+                "runEnv": "10",
+                "version": "1.1.18",
+                "_": int(time.time() * 1000),
+            }
+            response = self.requests.get(
+                f"https://captcha.chaoxing.com/captcha/check/verification/result",
+                params=params,
+                headers=self.headers,
+            )
+            text = response.text.replace(
+                "jQuery33109180509737430778_1716381333117(", ""
+            ).replace(")", "")
+            data = json.loads(text)
+            if data.get("result") is True:
+                logging.info(f"滑块验证成功 (offset={off}, x={trial_x})")
+                try:
+                    validate_val = json.loads(data["extraData"])["validate"]
+                    return validate_val
+                except KeyError:
+                    pass
+            else:
+                logging.info(f"滑块失败 offset={off}, x={trial_x}, 微调重试...")
+        logging.info("所有微调都失败，放弃此滑块")
+        return ""
 
     def get_slide_captcha_data(self):
         url = "https://captcha.chaoxing.com/captcha/get/verification/image"
