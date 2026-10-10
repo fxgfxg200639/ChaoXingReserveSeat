@@ -23,12 +23,12 @@ get_current_dayofweek = lambda action: (
 )
 
 
-SLEEPTIME = 0.2  # 每次抢座的间隔
-ENDTIME = "07:01:00"  # 根据学校的预约座位时间+1min即可
+SLEEPTIME = 0.5  # 每次抢座的间隔
+ENDTIME = "22:10:00"  # 学校晚上22:00放号，抢到22:10即停
 
 ENABLE_SLIDER = True  # 是否有滑块验证
-MAX_ATTEMPT = 5  # 最大尝试次数
-RESERVE_NEXT_DAY = False  # 预约明天而不是今天的
+MAX_ATTEMPT = 20  # 最大尝试次数
+RESERVE_NEXT_DAY = True  # 晚上22:00放的是第二天的座位，预约明天
 
 
 def login_and_reserve(users, usernames, passwords, action, success_list=None):
