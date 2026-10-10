@@ -1,4 +1,4 @@
-﻿import json
+import json
 import time
 import argparse
 import os
@@ -79,14 +79,21 @@ def main(users, action=False):
     is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     if is_manual:
         logging.info("Manual trigger: reserve once regardless of time")
+    else:
+        # 定时触发：等到22:00准点才开始提交（本地逻辑一致）
+        now_bj = datetime.utcnow() + timedelta(hours=8)
+        target_22 = now_bj.replace(hour=22, minute=0, second=0, microsecond=0)
+        if now_bj < target_22:
+            wait_sec = (target_22 - now_bj).total_seconds()
+            logging.info(f"距离22:00放号还有{int(wait_sec)}秒，等待准点...")
+            time.sleep(wait_sec + 1)  # +1秒确保过了22:00:00
+        logging.info("已到22:00，开始抢座!")
+
     while current_time < ENDTIME or is_manual:
         attempt_times += 1
-        # try:
         success_list = login_and_reserve(
             users, usernames, passwords, action, success_list
         )
-        # except Exception as e:
-        #     print(f"An error occurred: {e}")
         print(
             f"attempt time {attempt_times}, time now {current_time}, success list {success_list}"
         )
