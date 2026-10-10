@@ -32,78 +32,81 @@ MAX_ATTEMPT = 5  # 最大尝试次数
 RESERVE_NEXT_DAY = True  # 晚上22:00放的是第二天的座位，预约明天
 
 
-def login_and_reserve(users, usernames, passwords, action, success_list=None):
-    logging.info(
-        f"Global settings: \nSLEEPTIME: {SLEEPTIME}\nENDTIME: {ENDTIME}\nENABLE_SLIDER: {ENABLE_SLIDER}\nRESERVE_NEXT_DAY: {RESERVE_NEXT_DAY}"
-    )
-    if success_list is None:
-        success_list = [False] * len(users)
-    current_dayofweek = get_current_dayofweek(action)
-    for index, user in enumerate(users):
-        username, password, times, roomid, seatid, daysofweek = user.values()
-        # 直接用config.json里的账号密码，不强制用secrets覆盖
-        if current_dayofweek not in daysofweek:
-            logging.info("Today not set to reserve")
-            continue
-        if not success_list[index]:
-            logging.info(
-                f"----------- {username} -- {times} -- {seatid} try -----------"
-            )
-            s = reserve(
-                sleep_time=SLEEPTIME,
-                max_attempt=MAX_ATTEMPT,
-                enable_slider=ENABLE_SLIDER,
-                reserve_next_day=RESERVE_NEXT_DAY,
-            )
-            s.get_login_status()
-            s.login(username, password)
-            s.requests.headers.update({"Host": "office.chaoxing.com"})
-            suc = s.submit(times, roomid, seatid, action)
-            success_list[index] = suc
-    return success_list
-
-
 def main(users, action=False):
+    """完全照搬本地do_reserve逻辑：等到22:00→逐账号逐时段登录提交→退出"""
     current_time = get_current_time(action)
     logging.info(f"start time {current_time}, action {'on' if action else 'off'}")
-    attempt_times = 0
-    usernames, passwords = None, None
-    if action:
-        usernames, passwords = get_user_credentials(action)
-    success_list = None
-    current_dayofweek = get_current_dayofweek(action)
-    today_reservation_num = sum(
-        1 for d in users if current_dayofweek in d.get("daysofweek")
-    )
-    # 手动触发（workflow_dispatch）时只抢一次，不受ENDTIME限制
+
+    # 手动触发（workflow_dispatch）：直接抢一次，不等22:00
     is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    if is_manual:
-        logging.info("Manual trigger: reserve once regardless of time")
-    else:
-        # 定时触发：等到22:00准点才开始提交（本地逻辑一致）
+    if not is_manual:
+        # 定时触发：等到22:00准点（跟本地auto_reserve_worker一致）
         now_bj = datetime.utcnow() + timedelta(hours=8)
         target_22 = now_bj.replace(hour=22, minute=0, second=0, microsecond=0)
         if now_bj < target_22:
             wait_sec = (target_22 - now_bj).total_seconds()
             logging.info(f"距离22:00放号还有{int(wait_sec)}秒，等待准点...")
-            time.sleep(wait_sec + 1)  # +1秒确保过了22:00:00
+            time.sleep(wait_sec + 1)
         logging.info("已到22:00，开始抢座!")
 
-    while current_time < ENDTIME or is_manual:
-        attempt_times += 1
-        success_list = login_and_reserve(
-            users, usernames, passwords, action, success_list
-        )
-        print(
-            f"attempt time {attempt_times}, time now {current_time}, success list {success_list}"
-        )
-        current_time = get_current_time(action)
-        if sum(success_list) == today_reservation_num:
-            print(f"reserved successfully!")
-            return
-        if is_manual:
-            logging.info("Manual trigger done, exit")
-            break
+    current_dayofweek = get_current_dayofweek(action)
+    success_count = 0
+    total_count = 0
+
+    for user in users:
+        username = user.get("username", "")
+        password = user.get("password", "")
+        times = user.get("time", ["08:30", "12:00"])
+        roomid = str(user.get("roomid", ""))
+        seatid = user.get("seatid", ["082"])
+        daysofweek = user.get("daysofweek", [])
+        if isinstance(seatid, str):
+            seatid = [seatid]
+
+        # 检查今天是否该抢
+        if current_dayofweek not in daysofweek:
+            logging.info(f"  {username} 今天({current_dayofweek})不在预约日，跳过")
+            continue
+
+        total_count += 1
+        logging.info(f"----------- {username} {times[0]}~{times[1]} 座位{seatid} 开始 -----------")
+
+        try:
+            s = reserve(
+                sleep_time=SLEEPTIME,
+                max_attempt=MAX_ATTEMPT,
+                enable_slider=ENABLE_SLIDER,
+                reserve_next_day=True,  # 每晚自动抢固定抢明天
+            )
+            logging.info(f"  正在登录...")
+            s.get_login_status()
+            ok, msg = s.login(username, password)
+            if not ok:
+                logging.error(f"  登录失败: {msg}")
+                continue
+            logging.info(f"  登录成功")
+            s.requests.headers.update({"Host": "office.chaoxing.com"})
+
+            logging.info(f"  正在提交预约...")
+            suc = s.submit(times, roomid, seatid, action)
+
+            # 打印每个座位的返回信息
+            if hasattr(s, 'submit_msg') and s.submit_msg:
+                for m in s.submit_msg:
+                    logging.info(f"  📨 {m}")
+
+            if suc:
+                logging.info(f"  ✅ 抢座成功: {username} {times[0]}~{times[1]} 座位{seatid}")
+                success_count += 1
+            else:
+                logging.error(f"  ❌ 抢座失败: {username} {times[0]}~{times[1]}")
+        except Exception as e:
+            logging.exception(f"  抢座异常: {e}")
+
+        # 账号之间间隔0.5秒（跟本地一致）
+        time.sleep(0.5)
+
+    logging.info(f"全部完成: 成功{success_count}/{total_count}")
 
 
 def debug(users, action=False):
