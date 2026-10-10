@@ -35,18 +35,12 @@ def login_and_reserve(users, usernames, passwords, action, success_list=None):
     logging.info(
         f"Global settings: \nSLEEPTIME: {SLEEPTIME}\nENDTIME: {ENDTIME}\nENABLE_SLIDER: {ENABLE_SLIDER}\nRESERVE_NEXT_DAY: {RESERVE_NEXT_DAY}"
     )
-    if action and len(usernames.split(",")) != len(users):
-        raise Exception("user number should match the number of config")
     if success_list is None:
         success_list = [False] * len(users)
     current_dayofweek = get_current_dayofweek(action)
     for index, user in enumerate(users):
         username, password, times, roomid, seatid, daysofweek = user.values()
-        if action:
-            username, password = (
-                usernames.split(",")[index],
-                passwords.split(",")[index],
-            )
+        # 直接用config.json里的账号密码，不强制用secrets覆盖
         if current_dayofweek not in daysofweek:
             logging.info("Today not set to reserve")
             continue
