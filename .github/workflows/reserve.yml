@@ -1,8 +1,9 @@
 name: auto_Reserve
 
-# 已终止每日定时运行（schedule 已禁用），仅保留手动触发（workflow_dispatch）。
-# 本地整合版为主力，云端仅作备用手动触发。
 on:
+  schedule:
+    # UTC 13:58 = 北京时间 21:58（学校22:00放号，提前2分钟启动等待）
+    - cron: '58 13 * * *'
   workflow_dispatch:
   
 jobs:
