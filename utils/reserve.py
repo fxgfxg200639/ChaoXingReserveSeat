@@ -266,8 +266,8 @@ class reserve:
         )  # 预约今天，修改days=1表示预约明天
         if action:
             day = datetime.date.today() + datetime.timedelta(
-                days=1 + delta_day
-            )  # 由于action时区问题导致其早+8区一天
+                days=delta_day
+            )  # UTC 13:58 = 北京21:58，UTC日期=北京日期，只需+delta_day
         parm = {
             "roomId": roomid,
             "startTime": times[0],
@@ -290,3 +290,4 @@ class reserve:
         )
         logging.info(json.loads(html))
         return json.loads(html)["success"]
+
