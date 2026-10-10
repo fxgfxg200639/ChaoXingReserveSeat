@@ -6,7 +6,8 @@ name: auto_Reserve
 # or API.
 on:
   schedule:
-    - cron: 58 13 * * * # 周一到周五每天早上5:59启动（防止github action过于高负载）
+    # GitHub Actions cron 使用 UTC 时间。59 13 = 每天 13:59 UTC = 北京时间 21:59（学校22:00放号，提前1分钟启动）
+    - cron: '59 13 * * *'
   workflow_dispatch:
   
 jobs:
