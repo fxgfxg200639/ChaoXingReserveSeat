@@ -1,13 +1,8 @@
-# This is a basic workflow that is manually triggered
-
 name: auto_Reserve
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
+# 已终止每日定时运行（schedule 已禁用），仅保留手动触发（workflow_dispatch）。
+# 本地整合版为主力，云端仅作备用手动触发。
 on:
-  schedule:
-    # GitHub Actions cron 使用 UTC 时间。59 13 = 每天 13:59 UTC = 北京时间 21:59（学校22:00放号，提前1分钟启动）
-    - cron: '59 13 * * *'
   workflow_dispatch:
   
 jobs:
@@ -24,7 +19,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           sudo apt-get install build-essential libssl-dev libffi-dev  python3-dev -y
-          pip install js2py cryptography requests
+          pip install cryptography requests
 
       - name: run script
         env:
