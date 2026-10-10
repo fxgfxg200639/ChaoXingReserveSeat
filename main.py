@@ -28,7 +28,7 @@ SLEEPTIME = 0.5  # 每次抢座的间隔
 ENDTIME = "22:10:00"  # 学校晚上22:00放号，抢到22:10即停
 
 ENABLE_SLIDER = True  # 是否有滑块验证
-MAX_ATTEMPT = 20  # 最大尝试次数
+MAX_ATTEMPT = 5  # 最大尝试次数
 RESERVE_NEXT_DAY = True  # 晚上22:00放的是第二天的座位，预约明天
 
 
