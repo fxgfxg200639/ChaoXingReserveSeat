@@ -37,12 +37,24 @@ def main(users, action=False):
     current_time = get_current_time(action)
     logging.info(f"start time {current_time}, action {'on' if action else 'off'}")
 
-    # 手动触发（workflow_dispatch）：直接抢一次，不等22:00
+    # 手动触发（workflow_dispatch）
     is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    if not is_manual:
-        # 定时触发：等到22:00准点（跟本地auto_reserve_worker一致）
-        now_bj = datetime.utcnow() + timedelta(hours=8)
-        target_22 = now_bj.replace(hour=22, minute=0, second=0, microsecond=0)
+    now_bj = datetime.utcnow() + timedelta(hours=8)
+    target_22 = now_bj.replace(hour=22, minute=0, second=0, microsecond=0)
+
+    if is_manual:
+        # 手动触发：如果在21:50~22:10之间，等到22:00准点抢；否则直接抢一次
+        diff_sec = (now_bj - target_22).total_seconds()
+        if -600 <= diff_sec <= 600:  # 前后10分钟窗口
+            if now_bj < target_22:
+                wait_sec = (target_22 - now_bj).total_seconds()
+                logging.info(f"手动触发，距离22:00还有{int(wait_sec)}秒，等待准点...")
+                time.sleep(wait_sec + 1)
+            logging.info("已到22:00，开始抢座!")
+        else:
+            logging.info(f"手动触发，不在22:00前后10分钟窗口（现在{now_bj.strftime('%H:%M')}），直接抢一次")
+    else:
+        # cron定时触发：等到22:00准点
         if now_bj < target_22:
             wait_sec = (target_22 - now_bj).total_seconds()
             logging.info(f"距离22:00放号还有{int(wait_sec)}秒，等待准点...")
