@@ -43,16 +43,16 @@ def main(users, action=False):
     target_22 = now_bj.replace(hour=22, minute=0, second=0, microsecond=0)
 
     if is_manual:
-        # 手动触发：如果在21:50~22:10之间，等到22:00准点抢；否则直接抢一次
+        # 手动触发：必须在21:50~22:10窗口内才等到22:00抢，否则直接退出
         diff_sec = (now_bj - target_22).total_seconds()
-        if -600 <= diff_sec <= 600:  # 前后10分钟窗口
-            if now_bj < target_22:
-                wait_sec = (target_22 - now_bj).total_seconds()
-                logging.info(f"手动触发，距离22:00还有{int(wait_sec)}秒，等待准点...")
-                time.sleep(wait_sec + 1)
-            logging.info("已到22:00，开始抢座!")
-        else:
-            logging.info(f"手动触发，不在22:00前后10分钟窗口（现在{now_bj.strftime('%H:%M')}），直接抢一次")
+        if diff_sec < -600 or diff_sec > 600:
+            logging.info(f"手动触发但不在21:50~22:10窗口（现在{now_bj.strftime('%H:%M')}），退出不抢")
+            return
+        if now_bj < target_22:
+            wait_sec = (target_22 - now_bj).total_seconds()
+            logging.info(f"手动触发，距离22:00还有{int(wait_sec)}秒，等待准点...")
+            time.sleep(wait_sec + 1)
+        logging.info("已到22:00，开始抢座!")
     else:
         # cron定时触发：等到22:00准点
         if now_bj < target_22:
