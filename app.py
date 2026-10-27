@@ -462,29 +462,69 @@ def do_reserve_all(only_idx=None):
     except Exception as e:
         add_log(f"❌ 抢座异常: {e}","ERROR")
 
+def do_checkin_detailed(username, password, roomid, seatid):
+    """带详细日志的签到函数"""
+    sys.path.insert(0, BASE_DIR)
+    from utils.reserve import reserve
+    
+    add_log(f"  🔐 正在登录超星...","CHECKIN")
+    s = reserve(sleep_time=0.2, max_attempt=3, enable_slider=True)
+    s.get_login_status()
+    ok, msg = s.login(username, password)
+    if not ok:
+        add_log(f"  ❌ 登录失败: {msg}","CHECKIN")
+        return False, msg
+    add_log(f"  ✅ 登录成功","CHECKIN")
+    
+    add_log(f"  🪑 正在获取座位信息（{seatid}号）...","CHECKIN")
+    add_log(f"  📍 正在上报位置...","CHECKIN")
+    location_url = 'https://office.chaoxing.com/data/apps/seat/reportlocation'
+    loc_data = {'lng': '119.23559140410926', 'lat': '34.656767879153406'}
+    r = s.requests.post(location_url, data=loc_data, timeout=10)
+    add_log(f"  📍 位置上报: {r.text[:100]}","CHECKIN")
+    
+    add_log(f"  📝 正在提交签到...","CHECKIN")
+    checkin_url = 'https://office.chaoxing.com/data/apps/seat/checkin'
+    checkin_data = {
+        'roomId': str(roomid),
+        'seatNum': seatid.zfill(3),
+        'day': date.today().isoformat()
+    }
+    r = s.requests.post(checkin_url, data=checkin_data, timeout=10)
+    result = r.json()
+    add_log(f"  📝 签到接口返回: {r.status_code} {r.text[:150]}","CHECKIN")
+    
+    if result.get('success'):
+        add_log(f"  ✅ 签到完成: {username} {seatid}号","SUCCESS")
+        return True, "签到成功"
+    else:
+        msg = result.get('msg', '未知错误')
+        add_log(f"  ❌ 签到失败: {msg}","ERROR")
+        return False, msg
+
 def do_checkin_one(idx):
     """对指定账号执行签到"""
     cfg = load_config()
     if idx >= len(cfg['accounts']): return
     acc = cfg['accounts'][idx]
-    sys.path.insert(0, BASE_DIR)
-    from main import do_checkin_one as do_checkin
+    username = acc['username']
     seats = acc.get('seatid', ['082'])
     if isinstance(seats, str): seats = [seats]
+    
+    add_log(f"✅ 开始签到流程: {username}","CHECKIN")
     for seat in seats:
-        add_log(f"✅ 签到 {acc['username']} {seat}号...","CHECKIN")
-        ok, msg = do_checkin(acc['username'], acc['password'], str(acc['roomid']), seat.zfill(3))
-        if ok:
-            add_log(f"  ✅ {msg}","CHECKIN")
-            today = date.today().isoformat()
-            rlog = load_log()
-            for e in rlog:
-                if e.get('date')==today and e.get('username')==acc['username'] and e.get('seatid')==seat:
-                    e['checked_in'] = True
-                    e['checkin_time'] = datetime.now().strftime('%H:%M:%S')
-            save_log(rlog)
-        else:
-            add_log(f"  ❌ {msg}","CHECKIN")
+        try:
+            ok, msg = do_checkin_detailed(username, acc['password'], acc['roomid'], seat)
+            if ok:
+                today = date.today().isoformat()
+                rlog = load_log()
+                for e in rlog:
+                    if e.get('date')==today and e.get('username')==username and e.get('seatid')==seat:
+                        e['checked_in'] = True
+                        e['checkin_time'] = datetime.now().strftime('%H:%M:%S')
+                save_log(rlog)
+        except Exception as e:
+            add_log(f"  ❌ 签到异常: {e}","ERROR")
 
 def do_checkin_all():
     """扫描待签到日志，到时间自动签到"""
@@ -513,14 +553,14 @@ def do_checkin_all():
         if not acc: continue
         if not acc.get('auto_checkin', True): continue
         add_log(f"⏰ 到签到窗口: {username} {entry['seatid']}号","CHECKIN")
-        ok, msg = do_checkin(username, acc['password'], str(entry['roomid']), entry['seatid'].zfill(3))
-        if ok:
-            entry['checked_in'] = True
-            entry['checkin_time'] = now.strftime('%H:%M:%S')
-            changed = True
-            add_log(f"  ✅ {msg}","CHECKIN")
-        else:
-            add_log(f"  ❌ {msg}","CHECKIN")
+        try:
+            ok, msg = do_checkin_detailed(username, acc['password'], entry['roomid'], entry['seatid'])
+            if ok:
+                entry['checked_in'] = True
+                entry['checkin_time'] = now.strftime('%H:%M:%S')
+                changed = True
+        except Exception as e:
+            add_log(f"  ❌ 签到异常: {e}","ERROR")
     if changed:
         save_log(rlog)
 
