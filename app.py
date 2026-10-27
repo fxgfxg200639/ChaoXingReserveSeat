@@ -2,20 +2,18 @@
 # -*- coding: utf-8 -*-
 """
 超星抢座签到一体化 - 云端完整版
-部署在腾讯云服务器，手机浏览器直接访问控制面板
+两个守护线程：自动抢座 + 自动签到
 """
-import os, sys, json, time, threading, subprocess, logging
+import os, sys, json, time, threading, subprocess, logging, re
 from datetime import datetime, date, timedelta
 from flask import Flask, request, jsonify, render_template_string
 
-# 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 log_lines = []
 def add_log(msg, tag=""):
     line = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} {msg}".strip()
     log_lines.append(line)
-    if len(log_lines) > 300:
-        log_lines.pop(0)
+    if len(log_lines) > 500: log_lines.pop(0)
     logging.info(msg)
 
 app = Flask(__name__)
@@ -23,12 +21,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "admin_config.json")
 LOG_FILE = os.path.join(BASE_DIR, "reserve_log.json")
 
-# 默认配置
 DEFAULT_CONFIG = {
     "global": {
+        "auto_reserve_enabled": True,
         "auto_reserve_time": "21:50",
+        "max_attempt": 20,
         "auto_checkin_enabled": True,
-        "fire_minutes": 0,
+        "auto_query_times": "07:30",
     },
     "accounts": []
 }
@@ -44,101 +43,89 @@ ROOMS = {
     "三楼前台折叠椅": "9060",
 }
 
-WEEKS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-WEEK_CN = {"Monday":"一","Tuesday":"二","Wednesday":"三","Thursday":"四","Friday":"五","Saturday":"六","Sunday":"日"}
+WEEKS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with open(CONFIG_FILE,'r',encoding='utf-8') as f: return json.load(f)
     return DEFAULT_CONFIG.copy()
 
 def save_config(cfg):
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    with open(CONFIG_FILE,'w',encoding='utf-8') as f: json.dump(cfg,f,ensure_ascii=False,indent=2)
 
-def load_reserve_log():
+def load_log():
     if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with open(LOG_FILE,'r',encoding='utf-8') as f: return json.load(f)
     return []
 
-def save_reserve_log(log):
-    with open(LOG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(log, f, ensure_ascii=False, indent=2)
+def save_log(log):
+    with open(LOG_FILE,'w',encoding='utf-8') as f: json.dump(log,f,ensure_ascii=False,indent=2)
 
-# ========== 前端页面 ==========
+# ========== 前端 ==========
 INDEX_HTML = '''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>超星抢座控制台</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: -apple-system, sans-serif; background:#f5f6fa; padding:12px; color:#333; padding-bottom:40px; }
-h1 { font-size:18px; text-align:center; margin-bottom:12px; }
-.card { background:#fff; border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
-.card h2 { font-size:15px; margin-bottom:12px; color:#2c3e50; }
-.btn { display:block; width:100%; padding:12px; border:none; border-radius:8px; font-size:15px; cursor:pointer; margin-top:8px; }
-.btn-blue { background:#3498db; color:#fff; }
-.btn-green { background:#2ecc71; color:#fff; }
-.btn-red { background:#e74c3c; color:#fff; }
-.btn-gray { background:#95a5a6; color:#fff; }
-.btn-orange { background:#f39c12; color:#fff; }
-.btn-sm { padding:6px 12px; font-size:12px; display:inline-block; width:auto; margin:2px; }
-input, select { width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; margin-top:4px; }
-label { font-size:13px; color:#666; display:block; margin-top:8px; }
-.log-box { background:#1e1e1e; color:#0f0; padding:12px; border-radius:8px; font-size:11px; max-height:250px; overflow-y:auto; font-family:monospace; }
-.log-item { padding:8px 0; border-bottom:1px solid #ecf0f1; font-size:13px; }
-.ok { color:#27ae60; } .fail { color:#e74c3c; }
-.status { text-align:center; font-size:13px; padding:8px; border-radius:8px; margin-bottom:12px; }
-.status.on { background:#d5f5e3; color:#27ae60; }
-.status.off { background:#fadbd8; color:#e74c3c; }
-.account-card { background:#f8f9fa; border-radius:8px; padding:12px; margin-bottom:8px; border-left:3px solid #3498db; }
-.account-card .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-.account-card .name { font-weight:bold; font-size:14px; }
-.account-card .info { font-size:12px; color:#666; line-height:1.6; }
-.week-row { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
-.week-chip { padding:4px 10px; border-radius:12px; font-size:11px; background:#ecf0f1; cursor:pointer; }
-.week-chip.active { background:#3498db; color:#fff; }
-.form-row { margin-bottom:10px; }
-.modal-bg { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:99; }
-.modal { background:#fff; margin:20px; border-radius:12px; padding:16px; max-height:80vh; overflow-y:auto; }
-.modal h3 { margin-bottom:12px; font-size:16px; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,sans-serif;background:#f5f6fa;padding:12px;color:#333;padding-bottom:40px}
+h1{font-size:18px;text-align:center;margin-bottom:12px}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.card h2{font-size:15px;margin-bottom:12px;color:#2c3e50;display:flex;justify-content:space-between;align-items:center}
+.btn{display:block;width:100%;padding:12px;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-top:8px}
+.btn-blue{background:#3498db;color:#fff}.btn-green{background:#2ecc71;color:#fff}
+.btn-red{background:#e74c3c;color:#fff}.btn-gray{background:#95a5a6;color:#fff}
+.btn-orange{background:#f39c12;color:#fff}.btn-sm{padding:6px 12px;font-size:12px;display:inline-block;width:auto;margin:2px}
+input,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-top:4px}
+label{font-size:13px;color:#666;display:block;margin-top:8px}
+.log-box{background:#1e1e1e;color:#0f0;padding:12px;border-radius:8px;font-size:11px;max-height:250px;overflow-y:auto;font-family:monospace}
+.log-item{padding:8px 0;border-bottom:1px solid #ecf0f1;font-size:13px}
+.ok{color:#27ae60}.fail{color:#e74c3c}
+.status{text-align:center;font-size:13px;padding:8px;border-radius:8px;margin-bottom:12px}
+.status.on{background:#d5f5e3;color:#27ae60}.status.off{background:#fadbd8;color:#e74c3c}
+.account-card{background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:8px;border-left:3px solid #3498db}
+.account-card .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.account-card .name{font-weight:bold;font-size:14px}
+.account-card .info{font-size:12px;color:#666;line-height:1.6}
+.session-row{display:flex;gap:6px;align-items:center;margin-top:4px}
+.session-row input{flex:1}
+.toggle{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px}
+.modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:99}
+.modal{background:#fff;margin:20px;border-radius:12px;padding:16px;max-height:85vh;overflow-y:auto}
+.modal h3{margin-bottom:12px;font-size:16px}
 </style>
 </head>
 <body>
 <h1>🎓 超星抢座控制台</h1>
-
 <div id="status" class="status on">服务运行中</div>
 
 <div class="card">
 <h2>⚡ 快速操作</h2>
 <button class="btn btn-green" onclick="reserveNow()">🚀 立即抢座</button>
 <button class="btn btn-blue" onclick="checkinNow()">✅ 立即签到</button>
-<button class="btn btn-gray" onclick="queryNow()">🔍 查询座位状态</button>
+<button class="btn btn-gray" onclick="queryNow()">🔍 查询今天预约</button>
+<button class="btn btn-red" onclick="restartNow()">🔄 重启服务</button>
 </div>
 
 <div class="card">
-<h2>👥 账号列表 <button class="btn btn-orange btn-sm" onclick="showAddAccount()">+ 添加账号</button></h2>
+<h2>👥 账号列表 <button class="btn btn-orange btn-sm" onclick="showAdd()">+ 添加账号</button></h2>
 <div id="accountList">加载中...</div>
 </div>
 
 <div class="card">
 <h2>⚙️ 全局设置</h2>
-<label>自动抢座时间</label>
-<input type="time" id="autoTime" value="21:50">
-<label>自动签到</label>
-<select id="autoCheckin">
-<option value="true">开启</option>
-<option value="false">关闭</option>
-</select>
+<div class="toggle"><input type="checkbox" id="g_autoReserve" checked> 自动抢座</div>
+<label>抢座触发时间</label><input type="time" id="g_reserveTime" value="21:50">
+<label>最大尝试次数</label><input type="number" id="g_maxAttempt" value="20" min="1" max="100">
+<div class="toggle"><input type="checkbox" id="g_autoCheckin" checked> 自动签到</div>
+<label>每日查询预约时间</label><input type="time" id="g_queryTime" value="07:30">
 <button class="btn btn-blue" onclick="saveGlobal()">保存设置</button>
 </div>
 
 <div class="card">
-<h2>📋 预约记录</h2>
+<h2>📋 预约日志</h2>
 <div id="reserveLog">暂无记录</div>
 </div>
 
@@ -147,38 +134,24 @@ label { font-size:13px; color:#666; display:block; margin-top:8px; }
 <div class="log-box" id="logBox">加载中...</div>
 </div>
 
-<!-- 添加/编辑账号弹窗 -->
-<div class="modal-bg" id="accountModal">
+<div class="modal-bg" id="accModal">
 <div class="modal">
 <h3 id="modalTitle">添加账号</h3>
-<input type="hidden" id="editIdx">
-<label>手机号</label>
-<input type="text" id="f_username" placeholder="手机号">
-<label>密码</label>
-<input type="text" id="f_password" placeholder="超星密码">
+<input type="hidden" id="f_idx">
+<label>名称（备注）</label><input type="text" id="f_name" placeholder="如：我的号">
+<label>手机号</label><input type="text" id="f_username" placeholder="手机号">
+<label>密码</label><input type="text" id="f_password" placeholder="超星密码">
 <label>教室</label>
 <select id="f_room">
-{% for name, rid in rooms.items() %}
-<option value="{{ rid }}">{{ name }} ({{ rid }})</option>
-{% endfor %}
+{% for n,r in rooms.items() %}<option value="{{r}}">{{n}}</option>{% endfor %}
 </select>
-<label>座位号（多个用逗号分隔，如 082,083）</label>
+<label>座位号（逗号分隔，如 082,083）</label>
 <input type="text" id="f_seat" placeholder="082">
-<label>时段开始</label>
-<input type="time" id="f_timeStart" value="08:30">
-<label>时段结束</label>
-<input type="time" id="f_timeEnd" value="22:00">
-<label>预约星期</label>
-<div class="week-row" id="weekRow">
-<span class="week-chip" data-day="Monday">一</span>
-<span class="week-chip" data-day="Tuesday">二</span>
-<span class="week-chip" data-day="Wednesday">三</span>
-<span class="week-chip" data-day="Thursday">四</span>
-<span class="week-chip" data-day="Friday">五</span>
-<span class="week-chip" data-day="Saturday">六</span>
-<span class="week-chip" data-day="Sunday">日</span>
-</div>
-<div style="margin-top:12px; display:flex; gap:8px;">
+<div class="toggle"><input type="checkbox" id="f_autoReserve" checked> 自动抢座</div>
+<div class="toggle"><input type="checkbox" id="f_autoCheckin" checked> 自动签到</div>
+<label>预约时段 <button class="btn btn-sm btn-orange" onclick="addSession()">+ 加一段</button> <button class="btn btn-sm btn-blue" onclick="setFullDay()">一键全天两段</button></label>
+<div id="sessionsBox"></div>
+<div style="margin-top:12px;display:flex;gap:8px">
 <button class="btn btn-blue" style="flex:1" onclick="saveAccount()">保存</button>
 <button class="btn btn-gray" style="flex:1" onclick="closeModal()">取消</button>
 </div>
@@ -186,343 +159,388 @@ label { font-size:13px; color:#666; display:block; margin-top:8px; }
 </div>
 
 <script>
-let currentWeeks = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-let allRooms = {{ rooms | tojson }};
 let roomNames = {};
-{% for name, rid in rooms.items() %}
-roomNames["{{ rid }}"] = "{{ name }}";
-{% endfor %}
+{% for n,r in rooms.items() %}roomNames["{{r}}"]="{{n}}";{% endfor %}
+let sessions = [];
 
-function loadStatus() {
-    fetch('/api/status').then(r=>r.json()).then(d=>{
-        document.getElementById('status').textContent = d.auto_reserve ? '✅ 自动抢座运行中' : '⏸️ 自动抢座已停止';
-        document.getElementById('status').className = d.auto_reserve ? 'status on' : 'status off';
-    });
+function loadAll(){
+  fetch('/api/config').then(r=>r.json()).then(d=>{
+    document.getElementById('g_autoReserve').checked = d.global.auto_reserve_enabled;
+    document.getElementById('g_reserveTime').value = d.global.auto_reserve_time;
+    document.getElementById('g_maxAttempt').value = d.global.max_attempt;
+    document.getElementById('g_autoCheckin').checked = d.global.auto_checkin_enabled;
+    document.getElementById('g_queryTime').value = d.global.auto_query_times;
+    renderAccounts(d.accounts);
+  });
 }
-function loadConfig() {
-    fetch('/api/config').then(r=>r.json()).then(d=>{
-        document.getElementById('autoTime').value = d.global.auto_reserve_time;
-        document.getElementById('autoCheckin').value = String(d.global.auto_checkin_enabled);
-        renderAccounts(d.accounts);
-    });
+function renderAccounts(accs){
+  const box = document.getElementById('accountList');
+  if(!accs.length){box.innerHTML='<p style="color:#999">暂无账号</p>';return}
+  box.innerHTML = accs.map((a,i)=>{
+    const rooms = roomNames[a.roomid]||a.roomid;
+    const seats = (a.seatid||[]).join(', ');
+    const s = (a.sessions||[]).map(x=>x.start+'~'+x.end).join(' / ') || '未设置';
+    const ar = a.auto_reserve?'✅自动抢':'⏸️手动';
+    const ac = a.auto_checkin?'✅自动签':'⏸️手动';
+    return `<div class="account-card">
+      <div class="head"><span class="name">${a.name||a.username}</span>
+      <span><button class="btn btn-blue btn-sm" onclick='editAcc(${i})'>编辑</button>
+      <button class="btn btn-red btn-sm" onclick='delAcc(${i})'>删除</button></span></div>
+      <div class="info">📱 ${a.username}<br>📍 ${rooms} | 座位:${seats}<br>🕐 ${s}<br>${ar} | ${ac}</div>
+    </div>`;
+  }).join('');
 }
-function renderAccounts(accounts) {
-    const box = document.getElementById('accountList');
-    if(!accounts.length) { box.innerHTML='<p style="color:#999">暂无账号，点右上角添加</p>'; return; }
-    box.innerHTML = accounts.map((a,i)=>{
-        const seats = (a.seatid||[]).join(', ');
-        const roomName = roomNames[a.roomid] || a.roomid;
-        const days = (a.daysofweek||[]).map(d=>'周'+{Monday:'一',Tuesday:'二',Wednesday:'三',Thursday:'四',Friday:'五',Saturday:'六',Sunday:'日'}[d]).join(' ');
-        return `<div class="account-card">
-            <div class="head">
-                <span class="name">${a.username}</span>
-                <span>
-                    <button class="btn btn-blue btn-sm" onclick='editAccount(${i})'>编辑</button>
-                    <button class="btn btn-red btn-sm" onclick='delAccount(${i})'>删除</button>
-                </span>
-            </div>
-            <div class="info">
-                教室: ${roomName}<br>
-                座位: ${seats}<br>
-                时段: ${(a.time||[]).join(' ~ ')}<br>
-                星期: ${days}
-            </div>
-        </div>`;
+function loadLogs(){
+  fetch('/api/logs').then(r=>r.json()).then(d=>{
+    const lb = document.getElementById('logBox');
+    lb.innerText = d.logs.join('\\n'); lb.scrollTop = lb.scrollHeight;
+  });
+}
+function loadReserveLog(){
+  fetch('/api/reserve_log').then(r=>r.json()).then(d=>{
+    const box = document.getElementById('reserveLog');
+    if(!d.log.length){box.innerHTML='<p style="color:#999;text-align:center">暂无</p>';return}
+    box.innerHTML = d.log.slice().reverse().map(e=>{
+      const st = e.checked_in?'<span class="ok">已签</span>':'<span class="fail">未签</span>';
+      return `<div class="log-item">${e.date} ${e.start}~${e.end}<br><small>${e.username} | ${e.seatid}号 | ${st}</small></div>`;
     }).join('');
-}
-function loadLog() {
-    fetch('/api/reserve_log').then(r=>r.json()).then(d=>{
-        const box = document.getElementById('reserveLog');
-        if(!d.reserve_log.length) { box.innerHTML='<p style="color:#999;text-align:center">暂无预约记录</p>'; return; }
-        box.innerHTML = d.reserve_log.slice().reverse().map(e=>{
-            const st = e.checked_in ? '<span class="ok">已签到</span>' : '<span class="fail">待签到</span>';
-            return `<div class="log-item">
-                ${e.date} ${e.start}~${e.end}<br>
-                <small>${e.username} | ${e.seatid}号 | ${st}</small>
-            </div>`;
-        }).join('');
-    });
-}
-function loadLogs() {
-    fetch('/api/logs').then(r=>r.json()).then(d=>{
-        document.getElementById('logBox').innerText = d.logs.join('\\n');
-        const lb = document.getElementById('logBox');
-        lb.scrollTop = lb.scrollHeight;
-    });
+  });
 }
 
-function reserveNow() {
-    if(!confirm('确定立即执行抢座？')) return;
-    fetch('/api/reserve_now', {method:'POST'}).then(r=>r.json()).then(res=>{
-        alert(res.msg || '已触发');
-        loadLogs();
-    });
+function reserveNow(){if(!confirm('确定立即抢座？'))return;fetch('/api/reserve_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function checkinNow(){fetch('/api/checkin_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function queryNow(){fetch('/api/query_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function restartNow(){if(!confirm('重启服务？'))return;fetch('/api/restart',{method:'POST'})}
+
+function addSession(start='08:30',end='15:30'){
+  sessions.push({start,end}); renderSessions();
 }
-function checkinNow() {
-    fetch('/api/checkin_now', {method:'POST'}).then(r=>r.json()).then(res=>{
-        alert(res.msg || '已触发');
-        loadLogs();
-    });
+function renderSessions(){
+  const box = document.getElementById('sessionsBox');
+  box.innerHTML = sessions.map((s,i)=>`
+    <div class="session-row">
+      <input type="time" value="${s.start}" onchange="sessions[${i}].start=this.value">
+      <input type="time" value="${s.end}" onchange="sessions[${i}].end=this.value">
+      <button class="btn btn-red btn-sm" onclick="sessions.splice(${i},1);renderSessions()">×</button>
+    </div>`).join('');
 }
-function queryNow() {
-    fetch('/api/query_now', {method:'POST'}).then(r=>r.json()).then(res=>{
-        alert(res.msg || '查询完成');
-        loadLogs();
-    });
+function setFullDay(){sessions=[{start:'08:30',end:'15:30'},{start:'15:30',end:'22:00'}];renderSessions()}
+
+function showAdd(){
+  document.getElementById('modalTitle').textContent='添加账号';
+  document.getElementById('f_idx').value='';
+  document.getElementById('f_name').value='';
+  document.getElementById('f_username').value='';
+  document.getElementById('f_password').value='';
+  document.getElementById('f_room').value='6487';
+  document.getElementById('f_seat').value='';
+  document.getElementById('f_autoReserve').checked=true;
+  document.getElementById('f_autoCheckin').checked=true;
+  sessions=[{start:'08:30',end:'15:30'},{start:'15:30',end:'22:00'}];
+  renderSessions();
+  document.getElementById('accModal').style.display='block';
+}
+function editAcc(idx){
+  fetch('/api/config').then(r=>r.json()).then(d=>{
+    const a=d.accounts[idx];
+    document.getElementById('modalTitle').textContent='编辑账号';
+    document.getElementById('f_idx').value=idx;
+    document.getElementById('f_name').value=a.name||'';
+    document.getElementById('f_username').value=a.username;
+    document.getElementById('f_password').value=a.password;
+    document.getElementById('f_room').value=a.roomid;
+    document.getElementById('f_seat').value=(a.seatid||[]).join(',');
+    document.getElementById('f_autoReserve').checked=a.auto_reserve!==false;
+    document.getElementById('f_autoCheckin').checked=a.auto_checkin!==false;
+    sessions=a.sessions||[{start:'08:30',end:'22:00'}];
+    renderSessions();
+    document.getElementById('accModal').style.display='block';
+  });
+}
+function closeModal(){document.getElementById('accModal').style.display='none'}
+
+function saveAccount(){
+  const u=document.getElementById('f_username').value.trim();
+  const p=document.getElementById('f_password').value.trim();
+  if(!u||!p){alert('填手机号和密码');return}
+  const seatStr=document.getElementById('f_seat').value.trim();
+  const acc={
+    name:document.getElementById('f_name').value.trim()||u,
+    username:u,password:p,
+    roomid:document.getElementById('f_room').value,
+    seatid:seatStr?seatStr.split(/[,，\\s]+/).filter(s=>s):['082'],
+    auto_reserve:document.getElementById('f_autoReserve').checked,
+    auto_checkin:document.getElementById('f_autoCheckin').checked,
+    sessions:sessions.filter(s=>s.start&&s.end)
+  };
+  fetch('/api/config').then(r=>r.json()).then(cfg=>{
+    const idx=document.getElementById('f_idx').value;
+    if(idx==='')cfg.accounts.push(acc);else cfg.accounts[parseInt(idx)]=acc;
+    fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)})
+    .then(r=>r.json()).then(()=>{closeModal();loadAll()});
+  });
+}
+function delAcc(idx){
+  if(!confirm('删除这个账号？'))return;
+  fetch('/api/config').then(r=>r.json()).then(cfg=>{
+    cfg.accounts.splice(idx,1);
+    fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(()=>loadAll());
+  });
+}
+function saveGlobal(){
+  fetch('/api/config').then(r=>r.json()).then(cfg=>{
+    cfg.global.auto_reserve_enabled=document.getElementById('g_autoReserve').checked;
+    cfg.global.auto_reserve_time=document.getElementById('g_reserveTime').value;
+    cfg.global.max_attempt=parseInt(document.getElementById('g_maxAttempt').value)||20;
+    cfg.global.auto_checkin_enabled=document.getElementById('g_autoCheckin').checked;
+    cfg.global.auto_query_times=document.getElementById('g_queryTime').value;
+    fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(()=>alert('已保存'));
+  });
 }
 
-function showAddAccount() {
-    document.getElementById('modalTitle').textContent = '添加账号';
-    document.getElementById('editIdx').value = '';
-    document.getElementById('f_username').value = '';
-    document.getElementById('f_password').value = '';
-    document.getElementById('f_room').value = '6487';
-    document.getElementById('f_seat').value = '';
-    document.getElementById('f_timeStart').value = '08:30';
-    document.getElementById('f_timeEnd').value = '22:00';
-    currentWeeks = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-    updateWeekChips();
-    document.getElementById('accountModal').style.display = 'block';
-}
-function editAccount(idx) {
-    fetch('/api/config').then(r=>r.json()).then(d=>{
-        const a = d.accounts[idx];
-        document.getElementById('modalTitle').textContent = '编辑账号';
-        document.getElementById('editIdx').value = idx;
-        document.getElementById('f_username').value = a.username;
-        document.getElementById('f_password').value = a.password;
-        document.getElementById('f_room').value = a.roomid;
-        document.getElementById('f_seat').value = (a.seatid||[]).join(',');
-        document.getElementById('f_timeStart').value = (a.time||['08:30'])[0];
-        document.getElementById('f_timeEnd').value = (a.time||['22:00'])[1];
-        currentWeeks = a.daysofweek || [];
-        updateWeekChips();
-        document.getElementById('accountModal').style.display = 'block';
-    });
-}
-function closeModal() {
-    document.getElementById('accountModal').style.display = 'none';
-}
-function updateWeekChips() {
-    document.querySelectorAll('.week-chip').forEach(c=>{
-        c.classList.toggle('active', currentWeeks.includes(c.dataset.day));
-    });
-}
-document.querySelectorAll('.week-chip').forEach(c=>{
-    c.onclick = ()=>{
-        const d = c.dataset.day;
-        if(currentWeeks.includes(d)) currentWeeks = currentWeeks.filter(x=>x!==d);
-        else currentWeeks.push(d);
-        updateWeekChips();
-    };
-});
-
-function saveAccount() {
-    const username = document.getElementById('f_username').value.trim();
-    const password = document.getElementById('f_password').value.trim();
-    const roomid = document.getElementById('f_room').value;
-    const seatStr = document.getElementById('f_seat').value.trim();
-    const tStart = document.getElementById('f_timeStart').value;
-    const tEnd = document.getElementById('f_timeEnd').value;
-    const idx = document.getElementById('editIdx').value;
-
-    if(!username || !password) { alert('请填手机号和密码'); return; }
-    const seatid = seatStr ? seatStr.split(/[,，\s]+/).filter(s=>s) : ['082'];
-
-    const acc = {username, password, roomid, seatid, time:[tStart,tEnd], daysofweek:currentWeeks};
-    fetch('/api/config', {method:'GET'}).then(r=>r.json()).then(cfg=>{
-        if(idx === '') cfg.accounts.push(acc);
-        else cfg.accounts[parseInt(idx)] = acc;
-        fetch('/api/save_config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)})
-        .then(r=>r.json()).then(res=>{
-            if(res.success) { closeModal(); loadConfig(); addLog('账号已保存', 'CONFIG'); }
-            else alert('保存失败');
-        });
-    });
-}
-function delAccount(idx) {
-    if(!confirm('确定删除这个账号？')) return;
-    fetch('/api/config').then(r=>r.json()).then(cfg=>{
-        cfg.accounts.splice(idx,1);
-        fetch('/api/save_config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)})
-        .then(r=>r.json()).then(res=>{ if(res.success) loadConfig(); });
-    });
-}
-function saveGlobal() {
-    const autoTime = document.getElementById('autoTime').value;
-    const autoCheckin = document.getElementById('autoCheckin').value === 'true';
-    fetch('/api/config').then(r=>r.json()).then(cfg=>{
-        cfg.global.auto_reserve_time = autoTime;
-        cfg.global.auto_checkin_enabled = autoCheckin;
-        fetch('/api/save_config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)})
-        .then(r=>r.json()).then(res=>{ if(res.success) alert('已保存'); });
-    });
-}
-function addLog(msg, tag) {
-    fetch('/api/add_log', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({msg, tag})});
-}
-
-loadStatus(); loadConfig(); loadLog(); loadLogs();
-setInterval(loadLogs, 3000);
-setInterval(loadLog, 5000);
+loadAll();loadLogs();loadReserveLog();
+setInterval(loadLogs,3000);setInterval(loadReserveLog,5000);
 </script>
-</body>
-</html>'''
+</body></html>'''
 
 @app.route('/')
-def index():
-    return render_template_string(INDEX_HTML, rooms=ROOMS)
+def index(): return render_template_string(INDEX_HTML, rooms=ROOMS)
 
 @app.route('/api/status')
 def status():
-    return jsonify({"auto_reserve": True, "auto_checkin": True})
-
-@app.route('/api/config', methods=['GET'])
-def get_config():
     cfg = load_config()
-    return jsonify(cfg)
+    return jsonify({"auto_reserve": cfg['global']['auto_reserve_enabled'],
+                    "auto_checkin": cfg['global']['auto_checkin_enabled']})
+
+@app.route('/api/config')
+def get_config(): return jsonify(load_config())
 
 @app.route('/api/save_config', methods=['POST'])
 def save_config_api():
-    try:
-        cfg = request.json
-        save_config(cfg)
-        add_log("配置已更新", "CONFIG")
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "msg": str(e)}), 500
-
-@app.route('/api/add_log', methods=['POST'])
-def add_log_api():
-    data = request.json
-    add_log(data.get('msg',''), data.get('tag',''))
-    return jsonify({"success": True})
+    save_config(request.json); add_log("配置已更新","CONFIG"); return jsonify({"success":True})
 
 @app.route('/api/logs')
-def get_logs():
-    return jsonify({"logs": log_lines[-100:]})
+def get_logs(): return jsonify({"logs": log_lines[-150:]})
 
 @app.route('/api/reserve_log')
-def get_reserve_log():
-    return jsonify({"reserve_log": load_reserve_log()})
+def get_reserve_log(): return jsonify({"log": load_log()})
 
 @app.route('/api/reserve_now', methods=['POST'])
 def reserve_now():
-    """手动触发抢座"""
-    try:
-        cfg = load_config()
-        add_log("🚀 手动触发抢座", "MANUAL")
-        def run():
-            try:
-                sys.path.insert(0, BASE_DIR)
-                from main import main as do_reserve
-                users = []
-                for acc in cfg.get('accounts', []):
-                    seats = acc.get("seatid", ["082"])
-                    if isinstance(seats, str): seats = [seats]
-                    users.append({
-                        "username": acc["username"],
-                        "password": acc["password"],
-                        "time": acc.get("time", ["08:30", "22:00"]),
-                        "roomid": acc["roomid"],
-                        "seatid": seats,
-                        "daysofweek": acc.get("daysofweek", WEEKS)
-                    })
-                do_reserve(users, action=False)
-                add_log("✅ 抢座执行完成", "MANUAL")
-            except Exception as e:
-                add_log(f"❌ 抢座失败: {e}", "ERROR")
-        threading.Thread(target=run, daemon=True).start()
-        return jsonify({"success": True, "msg": "抢座已触发，请看日志"})
-    except Exception as e:
-        return jsonify({"success": False, "msg": str(e)}), 500
+    threading.Thread(target=do_reserve_all, args=(True,), daemon=True).start()
+    return jsonify({"success":True,"msg":"抢座已触发，看日志"})
 
 @app.route('/api/checkin_now', methods=['POST'])
 def checkin_now():
-    """手动触发签到"""
-    try:
-        cfg = load_config()
-        add_log("✅ 手动触发签到", "MANUAL")
-        def run():
-            try:
-                sys.path.insert(0, BASE_DIR)
-                from main import do_checkin_one
-                for acc in cfg.get('accounts', []):
-                    seats = acc.get('seatid', ['082'])
-                    if isinstance(seats, str): seats = [seats]
-                    for seat in seats:
-                        result = do_checkin_one(acc["username"], acc["password"], acc["roomid"], seat)
-                        add_log(f"签到 {acc['username']} {seat}号: {result}", "CHECKIN")
-            except Exception as e:
-                add_log(f"❌ 签到失败: {e}", "ERROR")
-        threading.Thread(target=run, daemon=True).start()
-        return jsonify({"success": True, "msg": "签到已触发，请看日志"})
-    except Exception as e:
-        return jsonify({"success": False, "msg": str(e)}), 500
+    threading.Thread(target=do_checkin_all, daemon=True).start()
+    return jsonify({"success":True,"msg":"签到已触发，看日志"})
 
 @app.route('/api/query_now', methods=['POST'])
 def query_now():
-    """手动查询当前座位状态"""
-    try:
-        cfg = load_config()
-        add_log("🔍 手动查询座位", "MANUAL")
-        def run():
+    threading.Thread(target=do_query_all, daemon=True).start()
+    return jsonify({"success":True,"msg":"查询已触发，看日志"})
+
+@app.route('/api/restart', methods=['POST'])
+def restart():
+    def _r():
+        time.sleep(1)
+        subprocess.Popen([sys.executable, os.path.join(BASE_DIR,'app.py')],
+                        cwd=BASE_DIR, stdout=open(os.path.join(BASE_DIR,'app.log'),'a'),
+                        stderr=subprocess.STDOUT)
+        os._exit(0)
+    threading.Thread(target=_r, daemon=True).start()
+    return jsonify({"success":True,"msg":"重启中..."})
+
+# ========== 业务逻辑 ==========
+
+def do_reserve_all(is_manual=False):
+    """执行所有账号的抢座"""
+    cfg = load_config()
+    add_log("🚀 开始抢座流程","RESERVE")
+    sys.path.insert(0, BASE_DIR)
+    from utils.reserve import reserve
+    import time as _t
+    
+    today = date.today().isoformat()
+    rlog = load_log()
+    
+    for acc in cfg['accounts']:
+        if not acc.get('auto_reserve', True) and not is_manual:
+            continue
+        username = acc['username']
+        password = acc['password']
+        roomid = str(acc['roomid'])
+        seats = acc.get('seatid', ['082'])
+        if isinstance(seats, str): seats = [seats]
+        
+        for sess in acc.get('sessions', []):
+            times = [sess['start'], sess['end']]
+            add_log(f"  {username} {times[0]}~{times[1]} 座位{seats}...","RESERVE")
             try:
-                sys.path.insert(0, BASE_DIR)
-                from utils.reserve import reserve
-                MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
-                for acc in cfg.get('accounts', []):
-                    s = reserve(sleep_time=0.2, max_attempt=3)
-                    s.get_login_status()
-                    ok, msg = s.login(acc["username"], acc["password"])
-                    if not ok:
-                        add_log(f"  {acc['username']} 登录失败: {msg}", "QUERY")
-                        continue
-                    uid = s.requests.cookies.get('_uid', '')
-                    add_log(f"  {acc['username']} 登录成功 uid={uid}", "QUERY")
-                    seats = acc.get('seatid', [])
-                    if isinstance(seats, str): seats = [seats]
+                s = reserve(sleep_time=0.5, max_attempt=cfg['global'].get('max_attempt',20),
+                           enable_slider=True, reserve_next_day=True)
+                s.get_login_status()
+                ok, msg = s.login(username, password)
+                if not ok:
+                    add_log(f"  登录失败: {msg}","ERROR"); continue
+                s.requests.headers.update({"Host":"office.chaoxing.com"})
+                suc = s.submit(times, roomid, seats, False)
+                if suc:
+                    add_log(f"  ✅ 抢座成功 {username} {times[0]}~{times[1]}","RESERVE")
                     for seat in seats:
-                        try:
-                            s.requests.headers['User-Agent'] = MOBILE_UA
-                            r = s.requests.post(
-                                'https://office.chaoxing.com/data/apps/seat/reserve/info',
-                                data={'id': acc['roomid'], 'seatNum': seat},
-                                timeout=10
-                            )
-                            data = r.json()
-                            sr = data.get('data', {}).get('seatReserve', {})
-                            if sr:
-                                add_log(f"    {seat}号 被占用: uid={sr.get('uid')}", "QUERY")
-                            else:
-                                add_log(f"    {seat}号 空闲", "QUERY")
-                        except Exception as e:
-                            add_log(f"    {seat}号 查询失败: {e}", "QUERY")
+                        rlog.append({"date":today,"start":times[0],"end":times[1],
+                                    "username":username,"seatid":seat,"roomid":roomid,
+                                    "checked_in":False,"source":"auto"})
+                else:
+                    add_log(f"  ❌ 抢座失败 {username}","RESERVE")
             except Exception as e:
-                add_log(f"❌ 查询失败: {e}", "ERROR")
-        threading.Thread(target=run, daemon=True).start()
-        return jsonify({"success": True, "msg": "查询已触发，请看日志"})
-    except Exception as e:
-        return jsonify({"success": False, "msg": str(e)}), 500
+                add_log(f"  异常: {e}","ERROR")
+            _t.sleep(0.5)
+    save_log(rlog)
+    add_log("✅ 抢座流程结束","RESERVE")
+
+def do_checkin_all():
+    """对所有账号执行签到检查"""
+    cfg = load_config()
+    sys.path.insert(0, BASE_DIR)
+    from main import do_checkin_one
+    
+    today = date.today().isoformat()
+    rlog = load_log()
+    now = datetime.now()
+    
+    for entry in rlog:
+        if entry.get('date') != today: continue
+        if entry.get('checked_in'): continue
+        start = entry.get('start','08:30')
+        try:
+            sh, sm = map(int, start.split(':'))
+        except: continue
+        target = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        early = target - timedelta(minutes=10)
+        late = target + timedelta(minutes=10)
+        if not (early <= now <= late): continue
+        
+        username = entry['username']
+        # 找密码
+        acc = next((a for a in cfg['accounts'] if a['username']==username), None)
+        if not acc: continue
+        add_log(f"⏰ 签到窗口: {username} {entry['seatid']}号","CHECKIN")
+        ok, msg = do_checkin_one(username, acc['password'], str(entry['roomid']), entry['seatid'].zfill(3))
+        if ok:
+            entry['checked_in'] = True
+            entry['checkin_time'] = now.strftime('%H:%M:%S')
+            add_log(f"  ✅ {msg}","CHECKIN")
+        else:
+            add_log(f"  ❌ {msg}","CHECKIN")
+    save_log(rlog)
+
+def do_query_all():
+    """查询今天预约并补录"""
+    cfg = load_config()
+    sys.path.insert(0, BASE_DIR)
+    from utils.reserve import reserve
+    today = date.today().isoformat()
+    rlog = load_log()
+    for acc in cfg['accounts']:
+        username = acc['username']
+        try:
+            s = reserve(sleep_time=0.2, max_attempt=3)
+            s.get_login_status()
+            ok, msg = s.login(username, acc['password'])
+            if not ok:
+                add_log(f"  {username} 登录失败: {msg}","QUERY"); continue
+            add_log(f"  {username} 登录成功","QUERY")
+            # 查今天预约列表
+            try:
+                r = s.requests.post('https://office.chaoxing.com/data/apps/seat/getusedtimes',
+                                   data={'day':today,'type':'1'}, timeout=10)
+                data = r.json()
+                add_log(f"  查询返回: {str(data)[:200]}","QUERY")
+            except Exception as e:
+                add_log(f"  查询失败: {e}","QUERY")
+        except Exception as e:
+            add_log(f"  异常: {e}","ERROR")
+    save_log(rlog)
+
+# ========== 守护线程 ==========
+
+def reserve_worker():
+    """自动抢座守护线程"""
+    while True:
+        try:
+            cfg = load_config()
+            if cfg['global']['auto_reserve_enabled']:
+                now = datetime.now()
+                target_time = cfg['global']['auto_reserve_time']
+                th, tm = map(int, target_time.split(':'))
+                target = now.replace(hour=th, minute=tm, second=0, microsecond=0)
+                
+                # 检查今天是否已执行
+                today = date.today().isoformat()
+                rlog = load_log()
+                already = any(e.get('date')==today and e.get('source')=='auto' and 
+                             datetime.now().strftime('%H') in ['21','22'])
+                
+                # 在触发时间±1分钟内执行
+                if abs((now - target).total_seconds()) < 60 and not already:
+                    add_log(f"⏰ 到达自动抢座时间 {target_time}","WORKER")
+                    # 等到22:00准点放号
+                    target_22 = now.replace(hour=22, minute=0, second=0, microsecond=0)
+                    if now < target_22:
+                        wait = (target_22 - now).total_seconds()
+                        add_log(f"  等待22:00放号，还需{int(wait)}秒","WORKER")
+                        time.sleep(wait + 1)
+                    do_reserve_all(is_manual=False)
+        except Exception as e:
+            add_log(f"抢座线程异常: {e}","ERROR")
+        time.sleep(5)
+
+def checkin_worker():
+    """自动签到守护线程，每秒扫描"""
+    while True:
+        try:
+            cfg = load_config()
+            if cfg['global']['auto_checkin_enabled']:
+                now = datetime.now()
+                # 每天07:30查询一次
+                qt = cfg['global'].get('auto_query_times','07:30')
+                qh, qm = map(int, qt.split(':'))
+                today = date.today().isoformat()
+                rlog = load_log()
+                already_queried = any(e.get('date')==today and e.get('source')=='query')
+                
+                if now.hour==qh and now.minute==qm and not already_queried:
+                    add_log("📋 每日自动查询预约","WORKER")
+                    do_query_all()
+                
+                # 扫描签到窗口
+                do_checkin_all()
+        except Exception as e:
+            add_log(f"签到线程异常: {e}","ERROR")
+        time.sleep(1)
 
 if __name__ == '__main__':
-    # 如果没有配置文件，从仓库config.json导入
+    # 首次运行从旧config导入
     if not os.path.exists(CONFIG_FILE):
-        old_config = os.path.join(BASE_DIR, "config.json")
-        if os.path.exists(old_config):
-            with open(old_config, 'r', encoding='utf-8') as f:
-                old = json.load(f)
-            accounts = []
-            for item in old.get('reserve', []):
-                accounts.append({
-                    "username": item["username"],
-                    "password": item["password"],
-                    "roomid": item["roomid"],
-                    "seatid": item["seatid"],
-                    "time": item["time"],
-                    "daysofweek": item.get("daysofweek", WEEKS),
-                })
-            save_config({"global": DEFAULT_CONFIG["global"], "accounts": accounts})
-            add_log("已从旧配置导入账号", "INIT")
-    add_log("🚀 云端控制台启动成功", "INIT")
+        old = os.path.join(BASE_DIR, "config.json")
+        if os.path.exists(old):
+            with open(old,'r',encoding='utf-8') as f: oldcfg = json.load(f)
+            accs = []
+            seen = {}
+            for item in oldcfg.get('reserve', []):
+                u = item['username']
+                if u not in seen:
+                    seen[u] = {'name':u[-4:],'username':u,'password':item['password'],
+                              'roomid':str(item['roomid']),'seatid':item['seatid'],
+                              'auto_reserve':True,'auto_checkin':True,'sessions':[]}
+                seen[u]['sessions'].append({'start':item['time'][0],'end':item['time'][1]})
+            accs = list(seen.values())
+            save_config({"global":DEFAULT_CONFIG["global"],"accounts":accs})
+            add_log(f"已从旧配置导入{len(accs)}个账号","INIT")
+    
+    # 启动守护线程
+    threading.Thread(target=reserve_worker, daemon=True).start()
+    threading.Thread(target=checkin_worker, daemon=True).start()
+    add_log("🚀 云端控制台启动成功（自动抢座+自动签到已开启）","INIT")
     app.run(host='0.0.0.0', port=5002, debug=False)
