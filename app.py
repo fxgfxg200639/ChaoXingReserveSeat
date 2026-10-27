@@ -617,7 +617,7 @@ def checkin_worker():
                 qh, qm = map(int, qt.split(':'))
                 today = date.today().isoformat()
                 rlog = load_log()
-                already_queried = any(e.get('date')==today and e.get('source')=='query')
+                already_queried = any(e.get('date')==today and e.get('source')=='query' for e in rlog)
                 
                 if now.hour==qh and now.minute==qm and not already_queried:
                     add_log("📋 每日自动查询预约","WORKER")
