@@ -149,7 +149,7 @@ label{font-size:13px;color:#666;display:block;margin-top:8px}
 <input type="text" id="f_seat" placeholder="082">
 <div class="toggle"><input type="checkbox" id="f_autoReserve" checked> 自动抢座</div>
 <div class="toggle"><input type="checkbox" id="f_autoCheckin" checked> 自动签到</div>
-<label>预约时段 <button class="btn btn-sm btn-orange" onclick="addSession()">+ 加一段</button> <button class="btn btn-sm btn-blue" onclick="setFullDay()">一键全天两段</button></label>
+<label>预约时段 <button class="btn btn-sm btn-orange" onclick="addSession()">+ 加一段</button> <button class="btn btn-sm btn-green" onclick="setFullDay()">⚡ 一键8:30-22:00分两段</button></label>
 <div id="sessionsBox"></div>
 <div style="margin-top:12px;display:flex;gap:8px">
 <button class="btn btn-blue" style="flex:1" onclick="saveAccount()">保存</button>
