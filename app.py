@@ -70,67 +70,80 @@ INDEX_HTML = '''<!DOCTYPE html>
 <title>超星抢座控制台</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,sans-serif;background:#f5f6fa;padding:12px;color:#333;padding-bottom:40px}
-h1{font-size:18px;text-align:center;margin-bottom:12px}
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#f5f6fa;padding:12px;color:#333;padding-bottom:40px}
+h1{font-size:20px;text-align:center;margin-bottom:8px;font-weight:600}
 .card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
 .card h2{font-size:15px;margin-bottom:12px;color:#2c3e50;display:flex;justify-content:space-between;align-items:center}
-.btn{display:block;width:100%;padding:12px;border:none;border-radius:8px;font-size:15px;cursor:pointer;margin-top:8px}
+.btn{padding:10px 16px;border:none;border-radius:8px;font-size:14px;cursor:pointer}
 .btn-blue{background:#3498db;color:#fff}.btn-green{background:#2ecc71;color:#fff}
 .btn-red{background:#e74c3c;color:#fff}.btn-gray{background:#95a5a6;color:#fff}
-.btn-orange{background:#f39c12;color:#fff}.btn-sm{padding:6px 12px;font-size:12px;display:inline-block;width:auto;margin:2px}
+.btn-orange{background:#f39c12;color:#fff}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-block{display:block;width:100%}
+.btn-row{display:flex;gap:6px;margin-top:8px}
+.btn-row .btn{flex:1}
 input,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-top:4px}
 label{font-size:13px;color:#666;display:block;margin-top:8px}
-.log-box{background:#1e1e1e;color:#0f0;padding:12px;border-radius:8px;font-size:11px;max-height:250px;overflow-y:auto;font-family:monospace}
-.log-item{padding:8px 0;border-bottom:1px solid #ecf0f1;font-size:13px}
-.ok{color:#27ae60}.fail{color:#e74c3c}
+.log-box{background:#1e1e1e;color:#0f0;padding:12px;border-radius:8px;font-size:11px;max-height:280px;overflow-y:auto;font-family:"Courier New",monospace;line-height:1.5}
+.log-item{padding:10px 0;border-bottom:1px solid #ecf0f1;font-size:13px}
+.log-time{color:#888;font-size:11px}
+.ok{color:#27ae60;font-weight:bold}.fail{color:#e74c3c;font-weight:bold}
 .status{text-align:center;font-size:13px;padding:8px;border-radius:8px;margin-bottom:12px}
 .status.on{background:#d5f5e3;color:#27ae60}.status.off{background:#fadbd8;color:#e74c3c}
-.account-card{background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:8px;border-left:3px solid #3498db}
-.account-card .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.account-card .name{font-weight:bold;font-size:14px}
-.account-card .info{font-size:12px;color:#666;line-height:1.6}
+.account-card{background:#f8f9fa;border-radius:10px;padding:12px;margin-bottom:10px;border-left:4px solid #3498db}
+.account-card .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.account-card .name{font-weight:bold;font-size:15px}
+.account-card .info{font-size:12px;color:#666;line-height:1.8}
+.account-card .room{color:#2c3e50;font-weight:500}
 .session-row{display:flex;gap:6px;align-items:center;margin-top:4px}
 .session-row input{flex:1}
-.toggle{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px}
+.toggle{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:14px}
 .modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:99}
 .modal{background:#fff;margin:20px;border-radius:12px;padding:16px;max-height:85vh;overflow-y:auto}
 .modal h3{margin-bottom:12px;font-size:16px}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:6px}
+.badge-ok{background:#d5f5e3;color:#27ae60}.badge-wait{background:#fef9e7;color:#f39c12}
 </style>
 </head>
 <body>
 <h1>🎓 超星抢座控制台</h1>
-<div id="status" class="status on">服务运行中</div>
+<div id="status" class="status on">✅ 服务运行中</div>
 
 <div class="card">
 <h2>⚡ 快速操作</h2>
-<button class="btn btn-green" onclick="reserveNow()">🚀 立即抢座</button>
-<button class="btn btn-blue" onclick="checkinNow()">✅ 立即签到</button>
-<button class="btn btn-gray" onclick="queryNow()">🔍 查询今天预约</button>
+<div class="btn-row">
+<button class="btn btn-blue" onclick="reserveNow()">🚀 立即抢座</button>
+<button class="btn btn-green" onclick="checkinNow()">✅ 立即签到</button>
+</div>
+<div class="btn-row">
+<button class="btn btn-gray" onclick="queryNow()">🔍 查询预约</button>
 <button class="btn btn-red" onclick="restartNow()">🔄 重启服务</button>
+</div>
 </div>
 
 <div class="card">
-<h2>👥 账号列表 <button class="btn btn-orange btn-sm" onclick="showAdd()">+ 添加账号</button></h2>
+<h2>👥 账号管理 <button class="btn btn-orange btn-sm" onclick="showAdd()">+ 添加账号</button></h2>
 <div id="accountList">加载中...</div>
 </div>
 
 <div class="card">
 <h2>⚙️ 全局设置</h2>
 <div class="toggle"><input type="checkbox" id="g_autoReserve" checked> 自动抢座</div>
-<label>抢座触发时间</label><input type="time" id="g_reserveTime" value="21:50">
-<label>最大尝试次数</label><input type="number" id="g_maxAttempt" value="20" min="1" max="100">
+<label>抢座触发时间（HH:MM）</label><input type="time" id="g_reserveTime" value="21:50">
+<label>抢座尝试次数</label><input type="number" id="g_maxAttempt" value="20" min="1" max="100">
 <div class="toggle"><input type="checkbox" id="g_autoCheckin" checked> 自动签到</div>
 <label>每日查询预约时间</label><input type="time" id="g_queryTime" value="07:30">
-<button class="btn btn-blue" onclick="saveGlobal()">保存设置</button>
+<button class="btn btn-blue btn-block" style="margin-top:12px" onclick="saveGlobal()">保存全局设置</button>
 </div>
 
 <div class="card">
-<h2>📋 预约日志</h2>
+<h2>📋 预约日志（已抢到待签到）</h2>
 <div id="reserveLog">暂无记录</div>
+<button class="btn btn-red btn-sm" style="margin-top:10px" onclick="clearLog()">🗑️ 清除预约日志</button>
 </div>
 
 <div class="card">
-<h2>📝 运行日志</h2>
+<h2>🖥️ 运行日志</h2>
 <div class="log-box" id="logBox">加载中...</div>
 </div>
 
@@ -138,22 +151,22 @@ label{font-size:13px;color:#666;display:block;margin-top:8px}
 <div class="modal">
 <h3 id="modalTitle">添加账号</h3>
 <input type="hidden" id="f_idx">
-<label>名称（备注）</label><input type="text" id="f_name" placeholder="如：我的号">
+<label>账号昵称（如：账号1）</label><input type="text" id="f_name" placeholder="账号1">
 <label>手机号</label><input type="text" id="f_username" placeholder="手机号">
 <label>密码</label><input type="text" id="f_password" placeholder="超星密码">
 <label>教室</label>
 <select id="f_room">
 {% for n,r in rooms.items() %}<option value="{{r}}">{{n}}</option>{% endfor %}
 </select>
-<label>座位号（逗号分隔，如 082,083）</label>
+<label>座位号（多个用英文逗号分隔，如 082,076）</label>
 <input type="text" id="f_seat" placeholder="082">
 <div class="toggle"><input type="checkbox" id="f_autoReserve" checked> 自动抢座</div>
 <div class="toggle"><input type="checkbox" id="f_autoCheckin" checked> 自动签到</div>
 <label>预约时段 <button class="btn btn-sm btn-orange" onclick="addSession()">+ 加一段</button> <button class="btn btn-sm btn-green" onclick="setFullDay()">⚡ 一键8:30-22:00分两段</button></label>
 <div id="sessionsBox"></div>
-<div style="margin-top:12px;display:flex;gap:8px">
-<button class="btn btn-blue" style="flex:1" onclick="saveAccount()">保存</button>
-<button class="btn btn-gray" style="flex:1" onclick="closeModal()">取消</button>
+<div class="btn-row" style="margin-top:12px">
+<button class="btn btn-blue" onclick="saveAccount()">保存账号</button>
+<button class="btn btn-gray" onclick="closeModal()">取消</button>
 </div>
 </div>
 </div>
@@ -175,7 +188,7 @@ function loadAll(){
 }
 function renderAccounts(accs){
   const box = document.getElementById('accountList');
-  if(!accs.length){box.innerHTML='<p style="color:#999">暂无账号</p>';return}
+  if(!accs.length){box.innerHTML='<p style="color:#999;text-align:center">暂无账号</p>';return}
   box.innerHTML = accs.map((a,i)=>{
     const rooms = roomNames[a.roomid]||a.roomid;
     const seats = (a.seatid||[]).join(', ');
@@ -183,13 +196,23 @@ function renderAccounts(accs){
     const ar = a.auto_reserve!==false?'✅自动抢':'⏸️手动';
     const ac = a.auto_checkin!==false?'✅自动签':'⏸️手动';
     return `<div class="account-card">
-      <div class="head"><span class="name">${a.name||a.username}</span>
-      <span><button class="btn btn-blue btn-sm" onclick='editAcc(${i})'>编辑</button>
-      <button class="btn btn-red btn-sm" onclick='delAcc(${i})'>删除</button></span></div>
-      <div class="info">📱 ${a.username}<br>📍 ${rooms} | 座位:${seats}<br>🕐 ${s}<br>${ar} | ${ac}</div>
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <button class="btn btn-green btn-sm" style="flex:1" onclick='reserveOne(${i})'>🚀 抢座</button>
-        <button class="btn btn-blue btn-sm" style="flex:1" onclick='checkinOne(${i})'>✅ 签到</button>
+      <div class="head">
+        <span class="name">${a.name||'账号'+(i+1)}</span>
+        <span style="font-size:12px;color:#888">${a.username}</span>
+      </div>
+      <div class="info">
+        <span class="room">🏠 ${rooms}</span><br>
+        🪑 座位:${seats} | 🕐 ${s}<br>
+        ${ar} | ${ac}
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-blue btn-sm" onclick='reserveOne(${i})'>立即抢座</button>
+        <button class="btn btn-green btn-sm" onclick='checkinOne(${i})'>立即签到</button>
+        <button class="btn btn-gray btn-sm" onclick='queryOne(${i})'>手动查询</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-gray btn-sm" onclick='editAcc(${i})'>编辑</button>
+        <button class="btn btn-red btn-sm" onclick='delAcc(${i})'>删除</button>
       </div>
     </div>`;
   }).join('');
@@ -197,7 +220,13 @@ function renderAccounts(accs){
 function loadLogs(){
   fetch('/api/logs').then(r=>r.json()).then(d=>{
     const lb = document.getElementById('logBox');
-    lb.innerText = d.logs.join('\\n'); lb.scrollTop = lb.scrollHeight;
+    lb.innerHTML = d.logs.map(l=>{
+      let cls = 'color:#0f0';
+      if(l.includes('ERROR')||l.includes('❌')) cls='color:#f44';
+      else if(l.includes('SUCCESS')||l.includes('✅')) cls='color:#0f0;font-weight:bold';
+      return `<div style="${cls}">${l}</div>`;
+    }).join('');
+    lb.scrollTop = lb.scrollHeight;
   });
 }
 function loadReserveLog(){
@@ -205,8 +234,14 @@ function loadReserveLog(){
     const box = document.getElementById('reserveLog');
     if(!d.log.length){box.innerHTML='<p style="color:#999;text-align:center">暂无</p>';return}
     box.innerHTML = d.log.slice().reverse().map(e=>{
-      const st = e.checked_in?'<span class="ok">已签</span>':'<span class="fail">未签</span>';
-      return `<div class="log-item">${e.date} ${e.start}~${e.end}<br><small>${e.username} | ${e.seatid}号 | ${st}</small></div>`;
+      const st = e.checked_in?'<span class="badge badge-ok">✅已签到 '+e.checkin_time+'</span>':'<span class="badge badge-wait">⏳待签到</span>';
+      return `<div class="log-item">
+        <div style="font-weight:500">${e.date} ${e.start}~${e.end}</div>
+        <div style="font-size:12px;color:#666;margin-top:4px">
+          🏠 ${roomNames[e.roomid]||e.roomid} | 🪑 ${e.seatid}号 | ${e.username}<br>
+          ${st}
+        </div>
+      </div>`;
     }).join('');
   });
 }
@@ -215,8 +250,10 @@ function reserveNow(){if(!confirm('确定所有账号都抢座？'))return;fetch
 function checkinNow(){fetch('/api/checkin_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function reserveOne(idx){if(!confirm('确定这个账号抢座？'))return;fetch('/api/reserve_one',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx})}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function checkinOne(idx){fetch('/api/checkin_one',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx})}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function queryOne(idx){fetch('/api/query_one',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx})}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function queryNow(){fetch('/api/query_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function restartNow(){if(!confirm('重启服务？'))return;fetch('/api/restart',{method:'POST'})}
+function clearLog(){if(!confirm('清空预约日志？'))return;fetch('/api/clear_log',{method:'POST'}).then(()=>loadReserveLog())}
 
 function addSession(start='08:30',end='15:30'){
   sessions.push({start,end}); renderSessions();
@@ -226,31 +263,51 @@ function renderSessions(){
   box.innerHTML = sessions.map((s,i)=>`
     <div class="session-row">
       <input type="time" value="${s.start}" onchange="sessions[${i}].start=this.value">
+      <span>至</span>
       <input type="time" value="${s.end}" onchange="sessions[${i}].end=this.value">
       <button class="btn btn-red btn-sm" onclick="sessions.splice(${i},1);renderSessions()">×</button>
-    </div>`).join('');
+    </div>
+  `).join('');
 }
 function setFullDay(){sessions=[{start:'08:30',end:'15:30'},{start:'15:30',end:'22:00'}];renderSessions()}
 
 function showAdd(){
-  document.getElementById('modalTitle').textContent='添加账号';
+  document.getElementById('modalTitle').innerText='添加账号';
   document.getElementById('f_idx').value='';
   document.getElementById('f_name').value='';
   document.getElementById('f_username').value='';
   document.getElementById('f_password').value='';
   document.getElementById('f_room').value='6487';
-  document.getElementById('f_seat').value='';
+  document.getElementById('f_seat').value='082';
   document.getElementById('f_autoReserve').checked=true;
   document.getElementById('f_autoCheckin').checked=true;
   sessions=[{start:'08:30',end:'15:30'},{start:'15:30',end:'22:00'}];
   renderSessions();
   document.getElementById('accModal').style.display='block';
 }
-function editAcc(idx){
+function closeModal(){document.getElementById('accModal').style.display='none'}
+
+function saveAccount(){
+  const data={
+    name:document.getElementById('f_name').value,
+    username:document.getElementById('f_username').value,
+    password:document.getElementById('f_password').value,
+    roomid:document.getElementById('f_room').value,
+    seatid:document.getElementById('f_seat').value.split(',').map(s=>s.trim()),
+    auto_reserve:document.getElementById('f_autoReserve').checked,
+    auto_checkin:document.getElementById('f_autoCheckin').checked,
+    sessions:sessions
+  };
+  const idx=document.getElementById('f_idx').value;
+  fetch('/api/save_account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx:idx,data:data})}).then(r=>r.json()).then(d=>{
+    alert(d.msg);closeModal();loadAll();
+  });
+}
+function editAcc(i){
   fetch('/api/config').then(r=>r.json()).then(d=>{
-    const a=d.accounts[idx];
-    document.getElementById('modalTitle').textContent='编辑账号';
-    document.getElementById('f_idx').value=idx;
+    const a=d.accounts[i];
+    document.getElementById('modalTitle').innerText='编辑账号';
+    document.getElementById('f_idx').value=i;
     document.getElementById('f_name').value=a.name||'';
     document.getElementById('f_username').value=a.username;
     document.getElementById('f_password').value=a.password;
@@ -258,56 +315,32 @@ function editAcc(idx){
     document.getElementById('f_seat').value=(a.seatid||[]).join(',');
     document.getElementById('f_autoReserve').checked=a.auto_reserve!==false;
     document.getElementById('f_autoCheckin').checked=a.auto_checkin!==false;
-    sessions=a.sessions||[{start:'08:30',end:'22:00'}];
+    sessions=a.sessions||[];
     renderSessions();
     document.getElementById('accModal').style.display='block';
   });
 }
-function closeModal(){document.getElementById('accModal').style.display='none'}
+function delAcc(i){if(!confirm('删除这个账号？'))return;fetch('/api/del_account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx:i})}).then(()=>loadAll())}
 
-function saveAccount(){
-  const u=document.getElementById('f_username').value.trim();
-  const p=document.getElementById('f_password').value.trim();
-  if(!u||!p){alert('填手机号和密码');return}
-  const seatStr=document.getElementById('f_seat').value.trim();
-  const acc={
-    name:document.getElementById('f_name').value.trim()||u,
-    username:u,password:p,
-    roomid:document.getElementById('f_room').value,
-    seatid:seatStr?seatStr.split(/[,，\\s]+/).filter(s=>s):['082'],
-    auto_reserve:document.getElementById('f_autoReserve').checked,
-    auto_checkin:document.getElementById('f_autoCheckin').checked,
-    sessions:sessions.filter(s=>s.start&&s.end)
-  };
-  fetch('/api/config').then(r=>r.json()).then(cfg=>{
-    const idx=document.getElementById('f_idx').value;
-    if(idx==='')cfg.accounts.push(acc);else cfg.accounts[parseInt(idx)]=acc;
-    fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)})
-    .then(r=>r.json()).then(()=>{closeModal();loadAll()});
-  });
-}
-function delAcc(idx){
-  if(!confirm('删除这个账号？'))return;
-  fetch('/api/config').then(r=>r.json()).then(cfg=>{
-    cfg.accounts.splice(idx,1);
-    fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(()=>loadAll());
-  });
-}
 function saveGlobal(){
-  fetch('/api/config').then(r=>r.json()).then(cfg=>{
-    cfg.global.auto_reserve_enabled=document.getElementById('g_autoReserve').checked;
-    cfg.global.auto_reserve_time=document.getElementById('g_reserveTime').value;
-    cfg.global.max_attempt=parseInt(document.getElementById('g_maxAttempt').value)||20;
-    cfg.global.auto_checkin_enabled=document.getElementById('g_autoCheckin').checked;
-    cfg.global.auto_query_times=document.getElementById('g_queryTime').value;
-    fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(()=>alert('已保存'));
-  });
+  const data={
+    auto_reserve_enabled:document.getElementById('g_autoReserve').checked,
+    auto_reserve_time:document.getElementById('g_reserveTime').value,
+    max_attempt:parseInt(document.getElementById('g_maxAttempt').value),
+    auto_checkin_enabled:document.getElementById('g_autoCheckin').checked,
+    auto_query_times:document.getElementById('g_queryTime').value
+  };
+  fetch('/api/save_global',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(d=>alert(d.msg));
 }
 
-loadAll();loadLogs();loadReserveLog();
-setInterval(loadLogs,3000);setInterval(loadReserveLog,5000);
+loadAll();
+loadLogs();
+loadReserveLog();
+setInterval(loadLogs, 2000);
+setInterval(loadReserveLog, 3000);
 </script>
-</body></html>'''
+</body>
+</html>'''
 
 @app.route('/')
 def index(): return render_template_string(INDEX_HTML, rooms=ROOMS)
@@ -357,6 +390,17 @@ def checkin_one():
 def query_now():
     threading.Thread(target=do_query_all, daemon=True).start()
     return jsonify({"success":True,"msg":"查询已触发，看日志"})
+
+@app.route('/api/query_one', methods=['POST'])
+def query_one():
+    idx = request.json.get('idx', 0)
+    threading.Thread(target=do_query_one, args=(idx,), daemon=True).start()
+    return jsonify({"success":True,"msg":"查询已触发，看日志"})
+
+@app.route('/api/clear_log', methods=['POST'])
+def clear_log():
+    save_log([])
+    return jsonify({"success":True,"msg":"预约日志已清空"})
 
 @app.route('/api/restart', methods=['POST'])
 def restart():
@@ -505,6 +549,35 @@ def do_query_all():
                 add_log(f"  查询失败: {e}","QUERY")
         except Exception as e:
             add_log(f"  异常: {e}","ERROR")
+    save_log(rlog)
+
+def do_query_one(idx):
+    """查询单个账号今天预约并补录"""
+    cfg = load_config()
+    if idx >= len(cfg['accounts']): return
+    acc = cfg['accounts'][idx]
+    username = acc['username']
+    sys.path.insert(0, BASE_DIR)
+    from utils.reserve import reserve
+    today = date.today().isoformat()
+    rlog = load_log()
+    try:
+        add_log(f"🔍 开始查询 {username}...","QUERY")
+        s = reserve(sleep_time=0.2, max_attempt=3)
+        s.get_login_status()
+        ok, msg = s.login(username, acc['password'])
+        if not ok:
+            add_log(f"  ❌ {username} 登录失败: {msg}","QUERY"); return
+        add_log(f"  ✅ {username} 登录成功","QUERY")
+        try:
+            r = s.requests.post('https://office.chaoxing.com/data/apps/seat/getusedtimes',
+                               data={'day':today,'type':'1'}, timeout=10)
+            data = r.json()
+            add_log(f"  查询返回: {str(data)[:300]}","QUERY")
+        except Exception as e:
+            add_log(f"  查询失败: {e}","QUERY")
+    except Exception as e:
+        add_log(f"  ❌ 异常: {e}","ERROR")
     save_log(rlog)
 
 # ========== 守护线程 ==========
