@@ -353,51 +353,37 @@ def restart():
 
 # ========== 业务逻辑 ==========
 
-def do_reserve_all(is_manual=False):
-    """执行所有账号的抢座"""
+def build_users_from_config():
+    """把admin_config转换成main.py需要的users格式"""
     cfg = load_config()
-    add_log("🚀 开始抢座流程","RESERVE")
-    sys.path.insert(0, BASE_DIR)
-    from utils.reserve import reserve
-    import time as _t
-    
-    today = date.today().isoformat()
-    rlog = load_log()
-    
+    users = []
     for acc in cfg['accounts']:
-        if not acc.get('auto_reserve', True) and not is_manual:
-            continue
-        username = acc['username']
-        password = acc['password']
-        roomid = str(acc['roomid'])
-        seats = acc.get('seatid', ['082'])
-        if isinstance(seats, str): seats = [seats]
-        
         for sess in acc.get('sessions', []):
-            times = [sess['start'], sess['end']]
-            add_log(f"  {username} {times[0]}~{times[1]} 座位{seats}...","RESERVE")
-            try:
-                s = reserve(sleep_time=0.5, max_attempt=cfg['global'].get('max_attempt',20),
-                           enable_slider=True, reserve_next_day=True)
-                s.get_login_status()
-                ok, msg = s.login(username, password)
-                if not ok:
-                    add_log(f"  登录失败: {msg}","ERROR"); continue
-                s.requests.headers.update({"Host":"office.chaoxing.com"})
-                suc = s.submit(times, roomid, seats, False)
-                if suc:
-                    add_log(f"  ✅ 抢座成功 {username} {times[0]}~{times[1]}","RESERVE")
-                    for seat in seats:
-                        rlog.append({"date":today,"start":times[0],"end":times[1],
-                                    "username":username,"seatid":seat,"roomid":roomid,
-                                    "checked_in":False,"source":"auto"})
-                else:
-                    add_log(f"  ❌ 抢座失败 {username}","RESERVE")
-            except Exception as e:
-                add_log(f"  异常: {e}","ERROR")
-            _t.sleep(0.5)
-    save_log(rlog)
-    add_log("✅ 抢座流程结束","RESERVE")
+            users.append({
+                "username": acc['username'],
+                "password": acc['password'],
+                "time": [sess['start'], sess['end']],
+                "roomid": str(acc['roomid']),
+                "seatid": acc.get('seatid', ['082']),
+                "daysofweek": WEEKS,
+            })
+    return users
+
+def do_reserve_all(is_manual=False):
+    """执行抢座，直接调用main.py的main函数"""
+    cfg = load_config()
+    users = build_users_from_config()
+    if not users:
+        add_log("⚠️ 没有配置账号，跳过","RESERVE")
+        return
+    add_log(f"🚀 开始抢座流程，共{len(users)}个时段","RESERVE")
+    try:
+        sys.path.insert(0, BASE_DIR)
+        from main import main as do_reserve
+        do_reserve(users, action=False)
+        add_log("✅ 抢座流程结束","RESERVE")
+    except Exception as e:
+        add_log(f"❌ 抢座异常: {e}","ERROR")
 
 def do_checkin_all():
     """对所有账号执行签到检查"""
@@ -466,32 +452,24 @@ def do_query_all():
 # ========== 守护线程 ==========
 
 def reserve_worker():
-    """自动抢座守护线程"""
+    """自动抢座守护线程，21:50触发，main函数内部会等到22:00准点"""
+    today_reserved = ""
     while True:
         try:
             cfg = load_config()
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            
             if cfg['global']['auto_reserve_enabled']:
-                now = datetime.now()
                 target_time = cfg['global']['auto_reserve_time']
                 th, tm = map(int, target_time.split(':'))
                 target = now.replace(hour=th, minute=tm, second=0, microsecond=0)
                 
-                # 检查今天是否已执行
-                today = date.today().isoformat()
-                rlog = load_log()
-                already = any(e.get('date')==today and e.get('source')=='auto' and 
-                             datetime.now().strftime('%H') in ['21','22'])
-                
-                # 在触发时间±1分钟内执行
-                if abs((now - target).total_seconds()) < 60 and not already:
-                    add_log(f"⏰ 到达自动抢座时间 {target_time}","WORKER")
-                    # 等到22:00准点放号
-                    target_22 = now.replace(hour=22, minute=0, second=0, microsecond=0)
-                    if now < target_22:
-                        wait = (target_22 - now).total_seconds()
-                        add_log(f"  等待22:00放号，还需{int(wait)}秒","WORKER")
-                        time.sleep(wait + 1)
-                    do_reserve_all(is_manual=False)
+                # 在触发时间±1分钟内，且今天还没跑过
+                if abs((now - target).total_seconds()) < 60 and today_reserved != today:
+                    today_reserved = today
+                    add_log(f"⏰ 到达自动抢座时间 {target_time}，启动抢座线程","WORKER")
+                    threading.Thread(target=do_reserve_all, args=(False,), daemon=True).start()
         except Exception as e:
             add_log(f"抢座线程异常: {e}","ERROR")
         time.sleep(5)
