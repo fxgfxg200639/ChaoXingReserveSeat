@@ -180,13 +180,17 @@ function renderAccounts(accs){
     const rooms = roomNames[a.roomid]||a.roomid;
     const seats = (a.seatid||[]).join(', ');
     const s = (a.sessions||[]).map(x=>x.start+'~'+x.end).join(' / ') || '未设置';
-    const ar = a.auto_reserve?'✅自动抢':'⏸️手动';
-    const ac = a.auto_checkin?'✅自动签':'⏸️手动';
+    const ar = a.auto_reserve!==false?'✅自动抢':'⏸️手动';
+    const ac = a.auto_checkin!==false?'✅自动签':'⏸️手动';
     return `<div class="account-card">
       <div class="head"><span class="name">${a.name||a.username}</span>
       <span><button class="btn btn-blue btn-sm" onclick='editAcc(${i})'>编辑</button>
       <button class="btn btn-red btn-sm" onclick='delAcc(${i})'>删除</button></span></div>
       <div class="info">📱 ${a.username}<br>📍 ${rooms} | 座位:${seats}<br>🕐 ${s}<br>${ar} | ${ac}</div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn btn-green btn-sm" style="flex:1" onclick='reserveOne(${i})'>🚀 抢座</button>
+        <button class="btn btn-blue btn-sm" style="flex:1" onclick='checkinOne(${i})'>✅ 签到</button>
+      </div>
     </div>`;
   }).join('');
 }
@@ -207,8 +211,10 @@ function loadReserveLog(){
   });
 }
 
-function reserveNow(){if(!confirm('确定立即抢座？'))return;fetch('/api/reserve_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function reserveNow(){if(!confirm('确定所有账号都抢座？'))return;fetch('/api/reserve_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function checkinNow(){fetch('/api/checkin_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function reserveOne(idx){if(!confirm('确定这个账号抢座？'))return;fetch('/api/reserve_one',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx})}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
+function checkinOne(idx){fetch('/api/checkin_one',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx})}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function queryNow(){fetch('/api/query_now',{method:'POST'}).then(r=>r.json()).then(d=>{alert(d.msg);loadLogs()})}
 function restartNow(){if(!confirm('重启服务？'))return;fetch('/api/restart',{method:'POST'})}
 
@@ -327,12 +333,24 @@ def get_reserve_log(): return jsonify({"log": load_log()})
 
 @app.route('/api/reserve_now', methods=['POST'])
 def reserve_now():
-    threading.Thread(target=do_reserve_all, args=(True,), daemon=True).start()
+    threading.Thread(target=do_reserve_all, args=(None,), daemon=True).start()
+    return jsonify({"success":True,"msg":"抢座已触发，看日志"})
+
+@app.route('/api/reserve_one', methods=['POST'])
+def reserve_one():
+    idx = request.json.get('idx', 0)
+    threading.Thread(target=do_reserve_all, args=(idx,), daemon=True).start()
     return jsonify({"success":True,"msg":"抢座已触发，看日志"})
 
 @app.route('/api/checkin_now', methods=['POST'])
 def checkin_now():
     threading.Thread(target=do_checkin_all, daemon=True).start()
+    return jsonify({"success":True,"msg":"签到已触发，看日志"})
+
+@app.route('/api/checkin_one', methods=['POST'])
+def checkin_one():
+    idx = request.json.get('idx', 0)
+    threading.Thread(target=do_checkin_one, args=(idx,), daemon=True).start()
     return jsonify({"success":True,"msg":"签到已触发，看日志"})
 
 @app.route('/api/query_now', methods=['POST'])
@@ -353,11 +371,13 @@ def restart():
 
 # ========== 业务逻辑 ==========
 
-def build_users_from_config():
+def build_users_from_config(only_idx=None):
     """把admin_config转换成main.py需要的users格式"""
     cfg = load_config()
     users = []
-    for acc in cfg['accounts']:
+    for i, acc in enumerate(cfg['accounts']):
+        if only_idx is not None and i != only_idx:
+            continue
         for sess in acc.get('sessions', []):
             users.append({
                 "username": acc['username'],
@@ -369,32 +389,70 @@ def build_users_from_config():
             })
     return users
 
-def do_reserve_all(is_manual=False):
-    """执行抢座，直接调用main.py的main函数"""
+def do_reserve_all(only_idx=None):
+    """执行抢座，直接调用main.py的main函数，抢到后写入日志"""
     cfg = load_config()
-    users = build_users_from_config()
+    users = build_users_from_config(only_idx)
     if not users:
         add_log("⚠️ 没有配置账号，跳过","RESERVE")
         return
-    add_log(f"🚀 开始抢座流程，共{len(users)}个时段","RESERVE")
+    who = "单个账号" if only_idx is not None else "所有账号"
+    add_log(f"🚀 开始抢座流程（{who}），共{len(users)}个时段","RESERVE")
     try:
         sys.path.insert(0, BASE_DIR)
         from main import main as do_reserve
         do_reserve(users, action=False)
-        add_log("✅ 抢座流程结束","RESERVE")
+        # 抢完后把记录写入待签到日志（去重）
+        today = date.today().isoformat()
+        rlog = load_log()
+        for u in users:
+            for seat in u['seatid']:
+                exists = any(e.get('date')==today and e.get('username')==u['username'] 
+                            and e.get('seatid')==seat and e.get('start')==u['time'][0])
+                if not exists:
+                    rlog.append({"date":today,"start":u['time'][0],"end":u['time'][1],
+                                "username":u['username'],"seatid":seat,"roomid":u['roomid'],
+                                "checked_in":False,"source":"auto"})
+        save_log(rlog)
+        add_log("✅ 抢座流程结束，已更新待签到日志","RESERVE")
     except Exception as e:
         add_log(f"❌ 抢座异常: {e}","ERROR")
 
-def do_checkin_all():
-    """对所有账号执行签到检查"""
+def do_checkin_one(idx):
+    """对指定账号执行签到"""
     cfg = load_config()
+    if idx >= len(cfg['accounts']): return
+    acc = cfg['accounts'][idx]
     sys.path.insert(0, BASE_DIR)
-    from main import do_checkin_one
-    
+    from main import do_checkin_one as do_checkin
+    seats = acc.get('seatid', ['082'])
+    if isinstance(seats, str): seats = [seats]
+    for seat in seats:
+        add_log(f"✅ 签到 {acc['username']} {seat}号...","CHECKIN")
+        ok, msg = do_checkin(acc['username'], acc['password'], str(acc['roomid']), seat.zfill(3))
+        if ok:
+            add_log(f"  ✅ {msg}","CHECKIN")
+            today = date.today().isoformat()
+            rlog = load_log()
+            for e in rlog:
+                if e.get('date')==today and e.get('username')==acc['username'] and e.get('seatid')==seat:
+                    e['checked_in'] = True
+                    e['checkin_time'] = datetime.now().strftime('%H:%M:%S')
+            save_log(rlog)
+        else:
+            add_log(f"  ❌ {msg}","CHECKIN")
+
+def do_checkin_all():
+    """扫描待签到日志，到时间自动签到"""
+    cfg = load_config()
+    if not cfg['global'].get('auto_checkin_enabled', True):
+        return
+    sys.path.insert(0, BASE_DIR)
+    from main import do_checkin_one as do_checkin
     today = date.today().isoformat()
     rlog = load_log()
     now = datetime.now()
-    
+    changed = False
     for entry in rlog:
         if entry.get('date') != today: continue
         if entry.get('checked_in'): continue
@@ -406,20 +464,21 @@ def do_checkin_all():
         early = target - timedelta(minutes=10)
         late = target + timedelta(minutes=10)
         if not (early <= now <= late): continue
-        
         username = entry['username']
-        # 找密码
         acc = next((a for a in cfg['accounts'] if a['username']==username), None)
         if not acc: continue
-        add_log(f"⏰ 签到窗口: {username} {entry['seatid']}号","CHECKIN")
-        ok, msg = do_checkin_one(username, acc['password'], str(entry['roomid']), entry['seatid'].zfill(3))
+        if not acc.get('auto_checkin', True): continue
+        add_log(f"⏰ 到签到窗口: {username} {entry['seatid']}号","CHECKIN")
+        ok, msg = do_checkin(username, acc['password'], str(entry['roomid']), entry['seatid'].zfill(3))
         if ok:
             entry['checked_in'] = True
             entry['checkin_time'] = now.strftime('%H:%M:%S')
+            changed = True
             add_log(f"  ✅ {msg}","CHECKIN")
         else:
             add_log(f"  ❌ {msg}","CHECKIN")
-    save_log(rlog)
+    if changed:
+        save_log(rlog)
 
 def do_query_all():
     """查询今天预约并补录"""
@@ -437,7 +496,6 @@ def do_query_all():
             if not ok:
                 add_log(f"  {username} 登录失败: {msg}","QUERY"); continue
             add_log(f"  {username} 登录成功","QUERY")
-            # 查今天预约列表
             try:
                 r = s.requests.post('https://office.chaoxing.com/data/apps/seat/getusedtimes',
                                    data={'day':today,'type':'1'}, timeout=10)
